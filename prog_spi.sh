@@ -29,33 +29,36 @@ wait_for_uart_output() {
     done
 }
 
-echo "Script started, look for \"Script completed\" for acknowledgement of completion of SPI programming"
 
+if [ -f /etc/profile.d/xsdb-variables.sh ]; then
+    source /etc/profile.d/xsdb-variables.sh
+    XSDB_PATH=$XILINX_VITIS
+    XSDB=$XILINX_VITIS/xsdb
+else 
+    # Look for xsdb in the system and filter paths containing "bin/xsdb"
+    XSDB_PATH=$(find / -iname xsdb 2>/dev/null | grep "/bin/xsdb" | head -n 1)
+    XSDB=$XSDB_PATH
 
-# Look for xsdb in the system and filter paths containing "bin/xsdb"
-XSDB_PATH=$(sudo find / -iname xsdb 2>/dev/null | grep "/bin/xsdb" | head -n 1)
+    #echo "Looking for xsdb binary"
+    # Check if XSDB_PATH is found
+    if [[ -n "$XSDB_PATH" ]]; then
+        # Extract the directory part of the path (remove the 'xsdb' part)
+        XSDB_DIR=$(dirname "$XSDB_PATH")
 
-echo "Looking for xsdb binary"
-# Check if XSDB_PATH is found
-if [[ -n "$XSDB_PATH" ]]; then
-    # Extract the directory part of the path (remove the 'xsdb' part)
-    XSDB_DIR=$(dirname "$XSDB_PATH")
-    
-    # Add to PATH if not already in PATH
-    if [[ ":$PATH:" != *":$XSDB_DIR:"* ]]; then
-        export PATH="$XSDB_DIR:$PATH"
-        echo "Added $XSDB_DIR to PATH"
+        # Add to PATH if not already in PATH
+        if [[ ":$PATH:" != *":$XSDB_DIR:"* ]]; then
+            export PATH="$XSDB_DIR:$PATH"
+        #    echo "Added $XSDB_DIR to PATH"
+        #else
+        #    echo "$XSDB_DIR is already in PATH"
+        fi
     else
-        echo "$XSDB_DIR is already in PATH"
+        echo "xsdb binary not found."
+        exit 1
     fi
-else
-    echo "xsdb binary not found."
-    exit 1
 fi
 
-
 # check if picocom is installed
-
 if ! command -v picocom &> /dev/null; then
     echo "Picocom is not installed. Installing it now..."
     if command -v apt &> /dev/null; then
@@ -64,8 +67,8 @@ if ! command -v picocom &> /dev/null; then
         echo "Error: Unsupported package manager. Please install picocom manually."
         exit 1
     fi
-else
-    echo "Picocom is already installed."
+#else
+#    echo "Picocom is already installed."
 fi
 
 if ! command -v picocom &> /dev/null; then
@@ -73,75 +76,121 @@ if ! command -v picocom &> /dev/null; then
 	exit 1
 fi
 
+detect_board() {
+    eeprom=$(ls /sys/bus/i2c/devices/*/eeprom_cc*/nvmem 2> /dev/null)
+    if [ -n "${eeprom}" ]; then
+        boardid=$(ipmi-fru --fru-file=${eeprom} --interpret-oem-data | awk -F": " '/FRU Board Product/ { print tolower ($2) }')
+        echo $boardid
+    else
+        echo "Unable to identify board type"
+        exit 1
+    fi
+}
+
+usage () {
+    echo "Usage: $0 -i <path_to_boot.bin> -d <board_type>"
+    echo "    -i <file>      : File to write to OSPI/QSPI"
+    echo "    -d <board>     : Board type.  Supported values"
+    echo "                     embplus, rhino, kria_k26, kria_k24c,"
+    echo "                     kria_k24i, versal_eval"
+    echo "    -p <port>      : Optional argument to override serial port"
+    echo "    -b <boot_file> : Optional argument to override programming boot.bin"
+    echo "    -h             : help"
+    exit 1
+}
 
 # Initialize variables
 path_to_boot_bin=""
 device_type=""
+dtb_file=""
+jtag_mux=false
 
 # Parse arguments
-while [[ "$#" -gt 0 ]]; do
-    case "$1" in
-        -embplus)
-            device_type="embplus"
+while getopts "d:i:p:b:h" arg; do
+    case "$arg" in
+        d)
+            case ${OPTARG} in
+                embplus)
+                    uart_dev=${uart_dev:="/dev/ttyUSB2"}
+                    binfile=${binfile:=bin/BOOT_embplus.bin}
+                    device_type=versal
+                    ;;
+                rhino)
+                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
+                    binfile=${binfile:=bin/BOOT_rhino.bin}
+                    device_type=versal
+                    ;;
+                kria_k26)
+                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
+                    binfile=${binfile:=bin/zynqmp_fsbl_k26.elf}
+                    dtb_file=bin/system_k26.dtb
+                    device_type=zynqmp
+                    ;;
+                kria_k24c)
+                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
+                    binfile=${binfile:=bin/zynqmp_fsbl_k24c.elf}
+                    dtb_file=bin/system_k24c.dtb
+                    device_type=zynqmp
+                    ;;
+                kria_k24i)
+                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
+                    binfile=${binfile:=bin/zynqmp_fsbl_k24i.elf}
+                    dtb_file=bin/system_k24i.dtb
+                    device_type=zynqmp
+                    ;;
+                versal_eval)
+                    uart_dev=${uart_dev:="/dev/ttyPS1"}
+                    BOARD=$(detect_board)
+                    echo "Detected board type $BOARD"
+                    binfile=bin/BOOT_${BOARD}.bin
+                    binfile=${binfile:=bin/BOOT_${BOARD}.bin}
+                    device_type=versal
+                    jtag_mux=true
+                    ;;
+                *)
+                    echo
+                    echo "Unknown device ${OPTARG}"
+                    echo
+                    usage
+                    ;;
+            esac
             ;;
-        -rhino)
-            device_type="rhino"
+
+        p)
+            uart_dev=$OPTARG
             ;;
-        -kria_k26)
-            device_type="kria_k26"
+        b)
+            binfile=$OPTARG
             ;;
-        -kria_k24c)
-            device_type="kria_k24c"
+        i)
+            path_to_boot_bin="${OPTARG}"
+            if [ ! -e "$path_to_boot_bin" ]; then
+                echo
+                echo "Unable to find file $path_to_boot_bin"
+                echo
+                usage
+            fi
             ;;
-        -kria_k24i)
-            device_type="kria_k24i"
-            ;;
-        *)
-            path_to_boot_bin="$1"
+        h)
+            usage
             ;;
     esac
-    shift
 done
+
+if [ $UID -ne 0 ]; then
+    echo "Must be root"
+    exit 1
+fi
 
 # Check if path_to_boot_bin is empty or device_type is not set
 if [ -z "$path_to_boot_bin" ] || [ -z "$device_type" ]; then
-    echo "Usage: $0 <path_to_boot.bin> -embplus|-rhino|-kria_k26|-kria_k24c|-kria_k24i"
-    exit 1
+    usage
 fi
-
-# Check if the file exists at path_to_boot_bin
-if [ ! -f "$path_to_boot_bin" ]; then
-    echo "Error: File '$path_to_boot_bin' does not exist."
-    exit 1
-fi
-
 
 # Check if the bootbin file has been copied over
-if [ "$device_type" = "embplus" ]; then
-    if [ ! -f bin/BOOT_embplus.bin ]; then
-        echo "Error: File bin/BOOT_embplus.bin does not exist, please download bin.zip from release area in the repo and place in this folder"
-        exit 1
-    fi
-elif [ "$device_type" = "rhino" ]; then
-    if [ ! -f bin/BOOT_rhino.bin ]; then
-        echo "Error: File bin/BOOT_rhino.bin does not exist, please download bin.zip from release area in the repo and place in this folder"
-        exit 1
-    fi
-elif [ "$device_type" = "kria_k26" ]; then
-    if [ ! -f bin/zynqmp_fsbl_k26.elf ]; then
-        echo "Error: File bin/zynqmp_fsbl_k26.elf does not exist, please download bin.zip from release area in the repo and place in this folder"
-        exit 1
-    fi
-elif [ "$device_type" = "kria_k24i" ]; then
-    if [ ! -f bin/zynqmp_fsbl_k24i.elf ]; then
-        echo "Error: File bin/BOOT_rhino.bin does not exist, please download bin.zip from release area in the repo and place in this folder"
-        exit 1
-    fi
-elif [ "$device_type" = "kria_k24c" ]; then
-    if [ ! -f bin/zynqmp_fsbl_k24c.elf  ]; then
-        echo "Error: File bin/BOOT_rhino.bin does not exist, please download bin.zip from release area in the repo and place in this folder"
-        exit 1
-    fi
+if [ ! -f $binfile ]; then
+   echo "Error: File $binfile does not exist, please download bin.zip from release area in the repo and place in this folder"
+   exit 1
 fi
 
 # Print the chosen options
@@ -149,21 +198,7 @@ echo "Boot bin path: $path_to_boot_bin"
 echo "Device type: $device_type"
 
 
-
-
-# Configure the serial port
-# Set uart_dev based on device_type
-if [ "$device_type" = "embplus" ]; then
-    uart_dev="/dev/ttyUSB2"
-elif [ "$device_type" = "rhino" ]; then
-    uart_dev="/dev/ttyUSB1"
-elif [ "$device_type" = "kria_k26" ]; then
-    uart_dev="/dev/ttyUSB1"
-elif [ "$device_type" = "kria_k24i" ]; then
-    uart_dev="/dev/ttyUSB1"
-elif [ "$device_type" = "kria_k24c" ]; then
-    uart_dev="/dev/ttyUSB1"
-fi
+echo "Script started, look for \"Script completed\" for acknowledgement of completion of SPI programming"
 
 uart_log_file="uart_output.log"
 if [ -f "$uart_log_file" ]; then
@@ -179,25 +214,16 @@ if lsof "$uart_dev" &> /dev/null; then
     exit 1
 fi
 
+if $jtag_mux; then
+    gpioset $(gpiofind SYSCTLR_JTAG_S0)=0
+    gpioset $(gpiofind SYSCTLR_JTAG_S1)=0
+fi
 
-picocom "$uart_dev" -b 115200 | tee "$uart_log_file" &
+picocom "$uart_dev" -q -b 115200 | tee "$uart_log_file" &
 tee_pid=$!  # Save the process ID to kill it later if needed
 pico_pid=$(jobs -p | tail -n 2 | head -n 1)
 
-
-
-if [ "$device_type" = "embplus" ]; then
-    xsdb versal/jtag_boot.tcl bin/BOOT_embplus.bin
-elif [ "$device_type" = "rhino" ]; then
-    xsdb versal/jtag_boot.tcl bin/BOOT_rhino.bin
-elif [ "$device_type" = "kria_k26" ]; then
-    xsdb zynqmpsoc/jtag_boot.tcl bin/zynqmp_fsbl_k26.elf bin/system_k26.dtb
-elif [ "$device_type" = "kria_k24c" ]; then
-    xsdb zynqmpsoc/jtag_boot.tcl bin/zynqmp_fsbl_k24c.elf bin/system_k24c.dtb
-elif [ "$device_type" = "kria_k24i" ]; then
-    xsdb zynqmpsoc/jtag_boot.tcl bin/zynqmp_fsbl_k24i.elf bin/system_k24i.dtb
-fi
-
+$XSDB ${device_type}/jtag_boot.tcl $binfile $dtb_file
 
 echo -en "\r" > $uart_dev
 sleep 1
@@ -207,39 +233,21 @@ echo -en "\r" > $uart_dev
 sleep 1
 
 
-if [ "$device_type" = "embplus" ] || [ "$device_type" = "rhino" ]; then
-    xsdb versal/download_data.tcl $path_to_boot_bin
-elif [ "$device_type" = "kria_k26" ] || [ "$device_type" = "kria_k24c" ] || [ "$device_type" = "kria_k24i" ]; then
-    xsdb zynqmpsoc/download_data.tcl $path_to_boot_bin
-fi
-
+$XSDB ${device_type}/download_data.tcl $path_to_boot_bin
 
 echo -en "sf probe 0x0 0x0 0x0\r" > $uart_dev
 wait_for_uart_output "Detected"
-echo
-echo "SPI found. Erasing... this could take up to 2 minutes"
-echo
 
-if [ "$device_type" = "embplus" ] || [ "$device_type" = "rhino" ]; then
-    echo -en "sf erase 0x0 0x7fe0000\r" > "$uart_dev"
-elif [ "$device_type" = "kria_k26" ] || [ "$device_type" = "kria_k24c" ] || [ "$device_type" = "kria_k24i" ]; then
-    echo -en "  sf erase 0x0 0x3ff0000\r" > "$uart_dev"
-fi
-
-
-wait_for_uart_output "Erased"
 echo
-echo "SPI erased, programming...this could take up to 5 minutes"
+echo "SPI Erasing and programming...this could take up to 5 minutes"
 echo
 
-if [ "$device_type" = "embplus" ] || [ "$device_type" = "rhino" ]; then
-    echo -en "sf write 0x80000 0x0 0x8000000\r" > "$uart_dev"
-elif [ "$device_type" = "kria_k26" ] || [ "$device_type" = "kria_k24c" ] || [ "$device_type" = "kria_k24i" ]; then
-    echo -en "sf write 0x80000 0x0 0x4000000\r" > "$uart_dev"
-fi
+bin_size=$(stat --printf="%s" $path_to_boot_bin)
+bin_size_hex=$(printf "%08x" $bin_size)
 
+echo -en "sf update 0x80000 0x0 $bin_size_hex\r" > "$uart_dev"
 
-wait_for_uart_output "Written"
+wait_for_uart_output "written"
 echo
 echo "SPI written successfully."
 echo
@@ -248,10 +256,13 @@ echo
 kill "$pico_pid"
 kill "$tee_pid"
 
-
-
 #stty -F  $uart_dev 115200 echo
 #echo "${uart_dev} echo turned back on"
+
+if $jtag_mux; then
+    gpioget $(gpiofind SYSCTLR_JTAG_S0)
+    gpioget $(gpiofind SYSCTLR_JTAG_S1)
+fi
 
 echo
 echo "Script completed"
