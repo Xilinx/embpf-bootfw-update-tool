@@ -1,5 +1,7 @@
 # Embedded Platform BootFW Update Tool
 
+NOTE: Stable version of this utility with corresponding readme and bin file are in the release area.
+
 This repository provides a utility to update AMD ACAP's (Adaptive Compute Acceleration Platform aka Adaptive SoC) flash device (OSPI or QSPI) with boot firmware in supported platforms. The current supported platforms are:
 
 * [Embedded+](https://www.amd.com/en/products/embedded/embedded-plus.html) products
@@ -61,31 +63,47 @@ Make ```prog_spi.sh``` executable:
 
 Move <boot.bin> that you want to program into OSPI onto filesystem on Ryzen/host OS Ubuntu.
 
+prog_spi.sh is used to program OSPI:
+
+Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
+    -i <file>      : File to write to OSPI/QSPI
+    -d <board>     : Board type.  Supported values
+                     embplus, rhino, kria_k26, kria_k24c,
+                     kria_k24i, versal_eval
+    -p <port>      : Optional argument to override serial port
+    -b <boot_file> : Optional argument to override programming boot.bin
+    -h             : help
+
+
 execute this command to program OSPI:
 
 for Embedded+:
 ```
-sudo ./prog_spi.sh <boot.bin> -embplus
+sudo ./prog_ospi.sh -i <boot.bin> -d embplus
 ```
 
 for RHINO:
 ```
-sudo ./prog_spi.sh <boot.bin> -rhino
+sudo ./prog_ospi.sh -i <boot.bin> -d rhino
 ```
 
 for Kria Production SOM:
 ```
 #k26c or k26i:
-sudo ./prog_spi.sh <boot.bin> -kria_k26
+sudo ./prog_spi.sh -i <boot.bin> -d kria_k26
 #k24c:
-sudo ./prog_spi.sh <boot.bin> -kria_k24c
+sudo ./prog_spi.sh -i <boot.bin> -d kria_k24c
 #k24i:
-sudo ./prog_spi.sh <boot.bin> -kria_k24i
+sudo ./prog_spi.sh -i <boot.bin> -d kria_k24i
 ```
 
 When the script finishes (in about 4 minutes), the flash will have been updated with <boot.bin>.
 
 ## Known issues and Debug Tips
+
+* Current version of script depends on physical uart to interact with u-boot. the UART may not always enumerate to the same /dev/ttyUSB*. to overwrite it in the case that it enumerates to a different device than what the script assumed, use -p flag to overwrite uart device location, such as:
+
+``` sudo ./prog_ospi.sh -i <boot.bin> -d rhino -p /dev/ttyUSB0```
 
 * If the script is stopped during execution, Versal may get in an indeterminate state. If you have issues running the script subsequently, power cycle the platform (not just a Ryzen reboot) and try the script again.
 

@@ -18,8 +18,8 @@ wait_for_uart_output() {
     while true; do
 	if  grep -q "Attempted to modify a protected sector" "$uart_log_file"; then
             echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
+            kill "$tee_pid"
             kill "$pico_pid"
-	    kill "$tee_pid"
 	    exit 1
         elif grep -q "$pattern" "$uart_log_file"; then
             echo "$pattern found in UART logfile $uart_log_file."
@@ -252,12 +252,6 @@ echo
 echo "SPI written successfully."
 echo
 
-# Clean up: stop the UART logging
-kill "$pico_pid"
-kill "$tee_pid"
-
-#stty -F  $uart_dev 115200 echo
-#echo "${uart_dev} echo turned back on"
 
 if $jtag_mux; then
     gpioget $(gpiofind SYSCTLR_JTAG_S0)
@@ -266,5 +260,11 @@ fi
 
 echo
 echo "Script completed"
+
+# Clean up: stop the UART logging
+kill "$tee_pid"
+kill "$pico_pid"
+
+
 exit 0
 
