@@ -65,6 +65,7 @@ Move <boot.bin> that you want to program into OSPI onto filesystem on Ryzen/host
 
 prog_spi.sh is used to program OSPI:
 
+```
 Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
     -i <file>      : File to write to OSPI/QSPI
     -d <board>     : Board type.  Supported values
@@ -73,7 +74,7 @@ Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
     -p <port>      : Optional argument to override serial port
     -b <boot_file> : Optional argument to override programming boot.bin
     -h             : help
-
+```
 
 execute this command to program OSPI:
 
