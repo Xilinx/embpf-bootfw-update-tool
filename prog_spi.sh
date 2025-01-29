@@ -9,24 +9,45 @@
 #
 #**********************************************************************
 
+echo "Script started, look for \"Script completed\" for acknowledgement of completion of SPI programming"
 
+# Function to send strings to the JTAG UART
+send_to_jtaguart() {
+  local message="$1"
+  echo "$message" >&"${COPROC[1]}"
+  echo "Sent to JTAG UART: $message"
+}
 
+match_jtaguart_output() {
+  local pattern="$1"
+  local timeout="$2"
 
+  local pause=0.1
+  local max_iterations=$(awk "BEGIN {print int($timeout / $pause)}")
 
-wait_for_uart_output() {
-    local pattern="$1"
-    while true; do
-	if  grep -q "Attempted to modify a protected sector" "$uart_log_file"; then
-            echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
-            kill "$tee_pid"
-            kill "$pico_pid"
+  local iterations=0
+
+  while (( iterations < max_iterations )); do
+    IFS= read -r line  <&"${COPROC[0]}"
+    echo "received on jtag_uart:  $line"
+    if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
+        echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
+        kill "${COPROC_PID}"
+        exec {COPROC[0]}>&-
+        exec {COPROC[1]}>&-
+
 	    exit 1
-        elif grep -q "$pattern" "$uart_log_file"; then
-            echo "$pattern found in UART logfile $uart_log_file."
-            return 0
-        fi
-        sleep 0.5  # Check every 500ms
-    done
+    elif echo "$line" | grep -q "$pattern"; then
+      echo "Match found: $line"
+      return 0  # Exit function when match is found
+    fi
+    sleep $pause
+    ((iterations++))
+  done
+
+  echo "ERROR: $line not found, ending script"
+
+  return 1  # No match found
 }
 
 
@@ -48,9 +69,6 @@ else
         # Add to PATH if not already in PATH
         if [[ ":$PATH:" != *":$XSDB_DIR:"* ]]; then
             export PATH="$XSDB_DIR:$PATH"
-        #    echo "Added $XSDB_DIR to PATH"
-        #else
-        #    echo "$XSDB_DIR is already in PATH"
         fi
     else
         echo "xsdb binary not found."
@@ -58,21 +76,20 @@ else
     fi
 fi
 
-# check if picocom is installed
-if ! command -v picocom &> /dev/null; then
-    echo "Picocom is not installed. Installing it now..."
+
+# check if xterm is installed
+if ! command -v xterm &> /dev/null; then
+    echo "xterm is not installed. Installing it now..."
     if command -v apt &> /dev/null; then
-        sudo apt install -y picocom
+        sudo apt install xterm
     else
-        echo "Error: Unsupported package manager. Please install picocom manually."
+        echo "Error: Unsupported package manager. Please install xterm manually."
         exit 1
     fi
-#else
-#    echo "Picocom is already installed."
 fi
 
-if ! command -v picocom &> /dev/null; then
-	echo "Picocom installation failed, please install manually"
+if ! command -v xterm &> /dev/null; then
+	echo "xterm installation failed, please install manually"
 	exit 1
 fi
 
@@ -198,45 +215,60 @@ echo "Boot bin path: $path_to_boot_bin"
 echo "Device type: $device_type"
 
 
-echo "Script started, look for \"Script completed\" for acknowledgement of completion of SPI programming"
-
-uart_log_file="uart_output.log"
-if [ -f "$uart_log_file" ]; then
-    rm "$uart_log_file"
-fi
-
-#echo "turning off ${uart_dev} echo"
-#stty -F  $uart_dev 115200 -ignbrk -brkint -ignpar -parmrk -inpck -istrip -inlcr -igncr -icrnl -ixon -ixoff -iuclc -ixany -imaxbel -iutf8 -opost -olcuc -ocrnl onlcr -onocr -onlret -ofill -ofdel nl0 cr0 tab0 bs0 vt0 ff0 -isig -icanon -iexten -echo echoe echok -echonl -noflsh -xcase -tostop -echoprt echoctl echoke -flusho -extproc
-
-
-if lsof "$uart_dev" &> /dev/null; then
-    echo "Error: Device $uart_dev is already in use by another program. Please stop the program before trying the script again"
-    exit 1
-fi
-
 if $jtag_mux; then
     gpioset $(gpiofind SYSCTLR_JTAG_S0)=0
     gpioset $(gpiofind SYSCTLR_JTAG_S1)=0
 fi
 
-picocom "$uart_dev" -q -b 115200 | tee "$uart_log_file" &
-tee_pid=$!  # Save the process ID to kill it later if needed
-pico_pid=$(jobs -p | tail -n 2 | head -n 1)
+
+# Run the xsdb script to start jtag uart and capture the socket port
+$XSDB ${device_type}/uart.tcl   &> tmp &
+sleep 1
+SOCK=$(tail -n 1 tmp) 
+echo $sock
+ 
+
+# Check if the socket was created successfully
+if [[ ! "$SOCK" =~ ^[0-9]+$ ]]; then
+  echo "Failed to extract a valid JTAG UART socket number. Output was:"
+  echo "$SOCK"
+  exit 1
+fi
+
+echo "JTAG UART socket started on port $SOCK"
+
+# Ensure no previous coprocess is interfering
+exec {COPROC[0]}>&- 2>/dev/null
+exec {COPROC[1]}>&- 2>/dev/null
+
+coproc nc localhost $SOCK
+
+# Drain any old data from the read pipe
+while IFS= read -r -t 0.1 junk <&"${COPROC[0]}"; do
+    :  # Do nothing, just clear the buffer
+done
 
 $XSDB ${device_type}/jtag_boot.tcl $binfile $dtb_file
 
-echo -en "\r" > $uart_dev
+
+sleep 2  # Wait a moment for nc to initialize
+
+
+send_to_jtaguart " " 
 sleep 1
-echo -en "\r" > $uart_dev
+send_to_jtaguart " "
 sleep 1
-echo -en "\r" > $uart_dev
+send_to_jtaguart " "
 sleep 1
 
 
-$XSDB ${device_type}/download_data.tcl $path_to_boot_bin
+##temporary removal to make debug faster $XSDB ${device_type}/download_data.tcl $path_to_boot_bin
 
-echo -en "sf probe 0x0 0x0 0x0\r" > $uart_dev
-wait_for_uart_output "Detected"
+#echo -en "sf probe 0x0 0x0 0x0\r" > $uart_dev
+send_to_jtaguart "sf probe 0x0 0x0 0x0"
+
+#wait_for_uart_output "Detected"
+match_jtaguart_output "Detected" 10
 
 echo
 echo "SPI Erasing and programming...this could take up to 5 minutes"
@@ -245,12 +277,20 @@ echo
 bin_size=$(stat --printf="%s" $path_to_boot_bin)
 bin_size_hex=$(printf "%08x" $bin_size)
 
-echo -en "sf update 0x80000 0x0 $bin_size_hex\r" > "$uart_dev"
+#echo -en "sf update 0x80000 0x0 $bin_size_hex\r" > "$uart_dev"
+send_to_jtaguart "sf update 0x80000 0x0 $bin_size_hex"
 
-wait_for_uart_output "written"
+#wait_for_uart_output "written"
+match_jtaguart_output "written" 600
 echo
 echo "SPI written successfully."
 echo
+
+
+kill "${COPROC_PID}"
+exec {COPROC[0]}>&-
+exec {COPROC[1]}>&-
+
 
 
 if $jtag_mux; then
@@ -260,10 +300,6 @@ fi
 
 echo
 echo "Script completed"
-
-# Clean up: stop the UART logging
-kill "$tee_pid"
-kill "$pico_pid"
 
 
 exit 0
