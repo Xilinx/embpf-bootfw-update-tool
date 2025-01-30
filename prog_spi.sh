@@ -223,11 +223,7 @@ fi
 
 # Run the xsdb script to start jtag uart and capture the socket port
 socket_file=tmp.socket
-if [ -f "$socket_file" ]; then
-    rm "$socket_file"
-fi
 $XSDB ${device_type}/uart.tcl   &> $socket_file &
-
 rt=0
 while [ "$SOCK" == "" ] && [ $rt -lt 10 ]; do
    SOCK=$(tail -n 1 $socket_file)
