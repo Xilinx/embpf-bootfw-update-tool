@@ -196,16 +196,16 @@ fi
 
 
 # Run the xsdb script to start jtag uart and capture the socket port
-$XSDB ${device_type}/uart.tcl   &> tmp &
+socket_file=tmp.socket
+$XSDB ${device_type}/uart.tcl   &> $socket_file &
 xsdb_pid=$!
 rt=0
 while [ "$SOCK" == "" ] && [ $rt -lt 10 ]; do
-   SOCK=$(tail -n 1 tmp) 
+   SOCK=$(tail -n 1 $socket_file)
    rt=$(( rt + 1 ))
    sleep 1
 done
 echo $SOCK
- 
 
 # Check if the socket was created successfully
 if [[ ! "$SOCK" =~ ^[0-9]+$ ]]; then
