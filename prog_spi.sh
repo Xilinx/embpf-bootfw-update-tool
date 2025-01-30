@@ -50,14 +50,15 @@ match_jtaguart_output() {
   return 1  # No match found
 }
 
-
-if [ -f /etc/profile.d/xsdb-variables.sh ]; then
+if command -v xsdb >/dev/null 2>&1; then
+    echo "xsdb is in PATH: $(command -v xsdb)"
+elif [ -f /etc/profile.d/xsdb-variables.sh ]; then
     source /etc/profile.d/xsdb-variables.sh
     XSDB_PATH=$XILINX_VITIS
     XSDB=$XILINX_VITIS/xsdb
 else 
     # Look for xsdb in the system and filter paths containing "bin/xsdb"
-    XSDB_PATH=$(find / -iname xsdb 2>/dev/null | grep "/bin/xsdb" | head -n 1)
+    XSDB_PATH=$(find /usr /opt /tools /home -iname xsdb 2>/dev/null | grep "/bin/xsdb" | head -n 1)
     XSDB=$XSDB_PATH
 
     #echo "Looking for xsdb binary"
@@ -71,27 +72,13 @@ else
             export PATH="$XSDB_DIR:$PATH"
         fi
     else
-        echo "xsdb binary not found."
+        echo "xsdb binary not found in /usr /opt /tools or /home directory."
+        echo "Please manually add XSDB to PATH and try again"
         exit 1
     fi
 fi
 
 
-# check if xterm is installed
-if ! command -v xterm &> /dev/null; then
-    echo "xterm is not installed. Installing it now..."
-    if command -v apt &> /dev/null; then
-        sudo apt install xterm
-    else
-        echo "Error: Unsupported package manager. Please install xterm manually."
-        exit 1
-    fi
-fi
-
-if ! command -v xterm &> /dev/null; then
-	echo "xterm installation failed, please install manually"
-	exit 1
-fi
 
 detect_board() {
     eeprom=$(ls /sys/bus/i2c/devices/*/eeprom_cc*/nvmem 2> /dev/null)
@@ -224,6 +211,7 @@ fi
 # Run the xsdb script to start jtag uart and capture the socket port
 socket_file=tmp.socket
 $XSDB ${device_type}/uart.tcl   &> $socket_file &
+XSDB_PID=$!
 rt=0
 while [ "$SOCK" == "" ] && [ $rt -lt 10 ]; do
    SOCK=$(tail -n 1 $socket_file)
@@ -292,6 +280,7 @@ echo "SPI written successfully."
 echo
 
 
+kill "${XSDB_PID}"
 kill "${COPROC_PID}"
 exec {COPROC[0]}>&-
 exec {COPROC[1]}>&-
