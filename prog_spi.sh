@@ -255,12 +255,10 @@ send_to_jtaguart " "
 sleep 1
 
 
-##temporary removal to make debug faster $XSDB ${device_type}/download_data.tcl $path_to_boot_bin
+$XSDB ${device_type}/download_data.tcl $path_to_boot_bin
 
-#echo -en "sf probe 0x0 0x0 0x0\r" > $uart_dev
 send_to_jtaguart "sf probe 0x0 0x0 0x0"
 
-#wait_for_uart_output "Detected"
 match_jtaguart_output "Detected" 10
 
 echo
@@ -270,10 +268,9 @@ echo
 bin_size=$(stat --printf="%s" $path_to_boot_bin)
 bin_size_hex=$(printf "%08x" $bin_size)
 
-#echo -en "sf update 0x80000 0x0 $bin_size_hex\r" > "$uart_dev"
 send_to_jtaguart "sf update 0x80000 0x0 $bin_size_hex"
 
-#wait_for_uart_output "written"
+
 match_jtaguart_output "written" 600
 echo
 echo "SPI written successfully."
