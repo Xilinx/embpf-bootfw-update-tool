@@ -23,12 +23,20 @@ match_jtaguart_output() {
   local timeout="$2"
 
   local pause=0.1
-  local max_iterations=$(awk "BEGIN {print int($timeout / $pause)}")
 
-  local iterations=0
+  while true; do
+    
+    IFS= read -r -t "$timeout" line <&"${COPROC[0]}"
+    
+    if [ $? -ne 0 ]; then
+        echo "Timed out after $timeout seconds - script failed"
+        kill "${XSDB_PID}"
+        kill "${COPROC_PID}"
+        exec {COPROC[0]}>&-
+        exec {COPROC[1]}>&-
+        exit 1
+    fi
 
-  while (( iterations < max_iterations )); do
-    IFS= read -r line  <&"${COPROC[0]}"
     echo "received on jtag_uart:  $line"
     if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
         echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
@@ -42,12 +50,11 @@ match_jtaguart_output() {
       return 0  # Exit function when match is found
     fi
     sleep $pause
-    ((iterations++))
   done
 
-  echo "ERROR: $line not found, ending script"
+  echo "ERROR: should never see this line"
 
-  return 1  # No match found
+  exit 1  # No match found
 }
 
 if command -v xsdb >/dev/null 2>&1; then
@@ -116,30 +123,30 @@ while getopts "d:i:p:b:h" arg; do
             case ${OPTARG} in
                 embplus)
                     uart_dev=${uart_dev:="/dev/ttyUSB2"}
-                    binfile=${binfile:=bin/BOOT_embplus.bin}
+                    binfile=${binfile:=bin/BOOT_embplus_jtaguart.bin}
                     device_type=versal
                     ;;
                 rhino)
                     uart_dev=${uart_dev:="/dev/ttyUSB1"}
-                    binfile=${binfile:=bin/BOOT_rhino.bin}
+                    binfile=${binfile:=bin/BOOT_rhino_jtaguart.bin}
                     device_type=versal
                     ;;
                 kria_k26)
                     uart_dev=${uart_dev:="/dev/ttyUSB1"}
                     binfile=${binfile:=bin/zynqmp_fsbl_k26.elf}
-                    dtb_file=bin/system_k26.dtb
+                    dtb_file=bin/system_k26_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 kria_k24c)
                     uart_dev=${uart_dev:="/dev/ttyUSB1"}
                     binfile=${binfile:=bin/zynqmp_fsbl_k24c.elf}
-                    dtb_file=bin/system_k24c.dtb
+                    dtb_file=bin/system_k24c_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 kria_k24i)
                     uart_dev=${uart_dev:="/dev/ttyUSB1"}
                     binfile=${binfile:=bin/zynqmp_fsbl_k24i.elf}
-                    dtb_file=bin/system_k24i.dtb
+                    dtb_file=bin/system_k24i_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 versal_eval)
