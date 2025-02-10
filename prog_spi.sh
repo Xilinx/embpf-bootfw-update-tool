@@ -11,6 +11,14 @@
 
 echo "Script started, look for \"Script completed\" for acknowledgement of completion of SPI programming"
 
+cleanup(){
+    kill "${COPROC_PID}"
+    exec {COPROC[0]}>&-
+    exec {COPROC[1]}>&-
+    kill "${XSDB_PID}"
+    pkill  -f "hw_server"
+    sleep 1
+}
 # Function to send strings to the JTAG UART
 send_to_jtaguart() {
   local message="$1"
@@ -30,20 +38,14 @@ match_jtaguart_output() {
     
     if [ $? -ne 0 ]; then
         echo "Timed out after $timeout seconds - script failed"
-        kill "${XSDB_PID}"
-        kill "${COPROC_PID}"
-        exec {COPROC[0]}>&-
-        exec {COPROC[1]}>&-
+        cleanup
         exit 1
     fi
 
     echo "received on jtag_uart:  $line"
     if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
         echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
-        kill "${COPROC_PID}"
-        exec {COPROC[0]}>&-
-        exec {COPROC[1]}>&-
-
+        cleanup
 	    exit 1
     elif echo "$line" | grep -q "$pattern"; then
       echo "Match found: $line"
@@ -104,7 +106,6 @@ usage () {
     echo "    -d <board>     : Board type.  Supported values"
     echo "                     embplus, rhino, kria_k26, kria_k24c,"
     echo "                     kria_k24i, versal_eval"
-    echo "    -p <port>      : Optional argument to override serial port"
     echo "    -b <boot_file> : Optional argument to override programming boot.bin"
     echo "    -h             : help"
     exit 1
@@ -115,6 +116,7 @@ path_to_boot_bin=""
 device_type=""
 dtb_file=""
 jtag_mux=false
+embplus_reset=false
 
 # Parse arguments
 while getopts "d:i:p:b:h" arg; do
@@ -122,35 +124,30 @@ while getopts "d:i:p:b:h" arg; do
         d)
             case ${OPTARG} in
                 embplus)
-                    uart_dev=${uart_dev:="/dev/ttyUSB2"}
                     binfile=${binfile:=bin/BOOT_embplus_jtaguart.bin}
                     device_type=versal
+                    embplus_reset=true
                     ;;
                 rhino)
-                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
                     binfile=${binfile:=bin/BOOT_rhino_jtaguart.bin}
                     device_type=versal
                     ;;
                 kria_k26)
-                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
                     binfile=${binfile:=bin/zynqmp_fsbl_k26.elf}
                     dtb_file=bin/system_k26_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 kria_k24c)
-                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
                     binfile=${binfile:=bin/zynqmp_fsbl_k24c.elf}
                     dtb_file=bin/system_k24c_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 kria_k24i)
-                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
                     binfile=${binfile:=bin/zynqmp_fsbl_k24i.elf}
                     dtb_file=bin/system_k24i_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 versal_eval)
-                    uart_dev=${uart_dev:="/dev/ttyPS1"}
                     BOARD=$(detect_board)
                     echo "Detected board type $BOARD"
                     binfile=bin/BOOT_${BOARD}.bin
@@ -167,9 +164,6 @@ while getopts "d:i:p:b:h" arg; do
             esac
             ;;
 
-        p)
-            uart_dev=$OPTARG
-            ;;
         b)
             binfile=$OPTARG
             ;;
@@ -214,11 +208,36 @@ if $jtag_mux; then
     gpioset $(gpiofind SYSCTLR_JTAG_S1)=0
 fi
 
+if $embplus_reset; then
+    chmod +x versal/embplus_jtag_porb.py
+    if ! dpkg-query -W -f='${Status}' python3-ftdi 2>/dev/null | grep -q "install ok installed" ; then
+        echo "python3-ftdi is not installed. Installing it now..."
+        if command -v apt &> /dev/null; then
+            sudo apt install python3-ftdi
+        else
+            echo "Error: Unsupported package manager. Please install python3-ftdi manually."
+            exit 1
+        fi
+    fi
+
+    if ! dpkg-query -W -f='${Status}' python3-ftdi 2>/dev/null | grep -q "install ok installed"; then
+        echo "python3-ftdi installation failed, please install manually"
+        exit 1
+    fi
+    sleep 1
+    echo "Setting EmbPlus to JTAG mode and performing por_b reset"
+    sudo modprobe -r  xclmgmt &> /dev/null
+    sudo modprobe -r  xocl &> /dev/null
+    python3 versal/embplus_jtag_porb.py
+    sleep 1
+fi
 
 # Run the xsdb script to start jtag uart and capture the socket port
 socket_file=tmp.socket
 $XSDB ${device_type}/uart.tcl   &> $socket_file &
 XSDB_PID=$!
+
+
 rt=0
 while [ "$SOCK" == "" ] && [ $rt -lt 10 ]; do
    SOCK=$(tail -n 1 $socket_file)
@@ -238,10 +257,15 @@ fi
 echo "JTAG UART socket started on port $SOCK"
 
 # Ensure no previous coprocess is interfering
-exec {COPROC[0]}>&- 2>/dev/null
-exec {COPROC[1]}>&- 2>/dev/null
+if [[ -n "${COPROC[0]+set}" ]]; then
+    exec {COPROC[0]}>&- 2>/dev/null
+fi
+if [[ -n "${COPROC[1]+set}" ]]; then
+    exec {COPROC[1]}>&- 2>/dev/null
+fi
 
 coproc nc localhost $SOCK
+COPROC_PID=$!
 
 # Drain any old data from the read pipe
 while IFS= read -r -t 0.1 junk <&"${COPROC[0]}"; do
@@ -283,13 +307,7 @@ echo
 echo "SPI written successfully."
 echo
 
-
-kill "${XSDB_PID}"
-kill "${COPROC_PID}"
-exec {COPROC[0]}>&-
-exec {COPROC[1]}>&-
-
-
+cleanup
 
 if $jtag_mux; then
     gpioget $(gpiofind SYSCTLR_JTAG_S0)

@@ -12,4 +12,5 @@ device program [lindex $argv 0]
 puts "device program, u-boot started, prepare to program flash to DDR"
 con
 
-
+disconnect
+exit
