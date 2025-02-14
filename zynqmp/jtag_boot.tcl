@@ -8,18 +8,20 @@
 
 puts stderr "Starting the script..."
 connect
-targets -set -nocase -filter {name =~ "PSU"}
-# update multiboot to ZERO
-mwr 0xffca0010 0x0
-# change boot mode to JTAG
-mwr 0xff5e0200 0x0100
-# reset
-rst -system
-after 2000
-targets -set -nocase -filter {name =~ "PSU"}
-mwr  0xffca0038 0x1ff
-targets -set -nocase -filter {name =~ "MicroBlaze PMU"}
 
+# required for jtag uart - setting jtag mode moved to uart.tcl
+#targets -set -nocase -filter {name =~ "PSU"}
+## update multiboot to ZERO
+#mwr 0xffca0010 0x0
+## change boot mode to JTAG
+#mwr 0xff5e0200 0x0100
+## reset
+#rst -system
+#after 2000
+#targets -set -nocase -filter {name =~ "PSU"}
+#mwr  0xffca0038 0x1ff
+
+targets -set -nocase -filter {name =~ "MicroBlaze PMU"}
 catch {stop}; after 1000
 puts stderr "INFO: Downloading zynqmp_pmufw ELF file to the target."
 dow -force "bin/pmufw.elf"
