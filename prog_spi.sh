@@ -310,8 +310,8 @@ echo
 cleanup
 
 if $jtag_mux; then
-    gpioget $(gpiofind SYSCTLR_JTAG_S0)
-    gpioget $(gpiofind SYSCTLR_JTAG_S1)
+    gpioget $(gpiofind SYSCTLR_JTAG_S0) >/dev/null
+    gpioget $(gpiofind SYSCTLR_JTAG_S1) >/dev/null
 fi
 
 echo
