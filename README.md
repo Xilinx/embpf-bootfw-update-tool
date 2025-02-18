@@ -117,13 +117,10 @@ sudo ./prog_spi.sh -i <boot.bin to program into OSPI> -d versal_eval -b <boot.bi
 
 ## Known issues and Debug Tips
 
-* Current version of script depends on physical uart to interact with u-boot. the UART may not always enumerate to the same /dev/ttyUSB*. to overwrite it in the case that it enumerates to a different device than what the script assumed, use -p flag to overwrite uart device location, such as:
-
-``` sudo ./prog_ospi.sh -i <boot.bin> -d rhino -p /dev/ttyUSB0```
-
 * If the script is stopped during execution, Versal may get in an indeterminate state. If you have issues running the script subsequently, power cycle the platform (not just a Ryzen reboot) and try the script again.
 
 * You may ignore the "rlwrap" warnings.
+
 
 # License
 (C) Copyright 2024, Advanced Micro Devices Inc.\
