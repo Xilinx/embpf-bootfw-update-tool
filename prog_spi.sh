@@ -16,7 +16,6 @@ cleanup(){
     exec {COPROC[0]}>&-
     exec {COPROC[1]}>&-
     kill "${XSDB_PID}"
-    pkill  -f "hw_server"
     sleep 1
 }
 # Function to send strings to the JTAG UART
@@ -59,12 +58,14 @@ match_jtaguart_output() {
   exit 1  # No match found
 }
 
-if command -v xsdb >/dev/null 2>&1; then
-    echo "xsdb is in PATH: $(command -v xsdb)"
-elif [ -f /etc/profile.d/xsdb-variables.sh ]; then
+if [ -f /etc/profile.d/xsdb-variables.sh ]; then
     source /etc/profile.d/xsdb-variables.sh
     XSDB_PATH=$XILINX_VITIS
-    XSDB=$XILINX_VITIS/xsdb
+fi
+
+if command -v xsdb >/dev/null 2>&1; then
+    echo "xsdb is in PATH: $(command -v xsdb)"
+    XSDB=$(which xsdb)
 else 
     # Look for xsdb in the system and filter paths containing "bin/xsdb"
     XSDB_PATH=$(find /usr /opt /tools /home -iname xsdb 2>/dev/null | grep "/bin/xsdb" | head -n 1)
@@ -86,7 +87,6 @@ else
         exit 1
     fi
 fi
-
 
 
 detect_board() {
