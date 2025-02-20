@@ -16,6 +16,8 @@ cleanup(){
     exec {COPROC[0]}>&-
     exec {COPROC[1]}>&-
     kill "${XSDB_PID}"
+    ps ax | grep xsdb | grep uart.tcl | awk '{print $1}' | xargs --no-run-if-empty kill -9 2>/dev/null
+
     sleep 1
 }
 # Function to send strings to the JTAG UART

@@ -6,8 +6,9 @@ This repository provides a utility to update AMD ACAP's (Adaptive Compute Accele
 
 * [Embedded+](https://www.amd.com/en/products/embedded/embedded-plus.html) products
    * [Edge+ VPR-4616](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_4616) Versal OSPI update
-* Rhino Versal OSPI update
+   * Rhino Versal OSPI update
 * Kria production SOM QSPI update (K26, K24c, K24i)
+* Versal Eval board VHK158 Versal OSPI update
 
 ## External Components and one time setup Required
 
@@ -18,6 +19,10 @@ Current Embedded+ platforms have a Versal and a Ryzen device. Versal firmware up
 On Embedded Plus platform, there are capabilities to set bootmode to JTAG and reset the board through FTDI GPIO and that is being leveraged by the script.
 
 On Rhino platform, there isnt a way to set bootmode using FTDI GPIO. Therefore, if there's program already in OSPI that prevents subsequent programs to access OSPI or DDR, script will not work. In that case, set bootmode to JTAG on the board using physical jumpers, power cycle, and then use this utility again.
+
+### On Versal Evaluation platforms
+
+On Versal eval platforms such as VHK158, there's a system controller that has access to Versal. This utility can be run from the system controller to update the OSPI.
 
 ### On Kria platforms
 
@@ -105,11 +110,16 @@ sudo ./prog_spi.sh -i <boot.bin> -d kria_k24c
 sudo ./prog_spi.sh -i <boot.bin> -d kria_k24i
 ```
 
+for VHK158, use -d versal_eval and script will automatically check if it is running on VHK158 system controller:
+```
+sudo ./prog_spi.sh -i <boot.bin> -d versal_eval
+```
+
 When the script finishes (in about 4 minutes), the flash will have been updated with <boot.bin>.
 
 ### Advanced users
 
-For other systems, you may create your own boot.bin file that boots u-boot over jtag uart, and then use -b <boot_file> to pass in the boot.bin. The u-boot created must use jtag uart instead of physical uart, and have access to DDR and OSPI. The command would look like below for a Versal based board:
+For other versal-based systems, you may create your own boot.bin file that boots u-boot over jtag uart, and then use -b <boot_file> to pass in the boot.bin. The u-boot created must use jtag uart instead of physical uart, and have access to DDR and OSPI. The command would look like below for a Versal based board:
 
 ```
 sudo ./prog_spi.sh -i <boot.bin to program into OSPI> -d versal_eval -b <boot.bin that uses jtag uart>
@@ -117,7 +127,9 @@ sudo ./prog_spi.sh -i <boot.bin to program into OSPI> -d versal_eval -b <boot.bi
 
 ## Known issues and Debug Tips
 
-* If the script is stopped during execution, Versal may get in an indeterminate state. If you have issues running the script subsequently, power cycle the platform (not just a Ryzen reboot) and try the script again.
+* If the script is stopped during execution, Versal may get in an indeterminate state. If you have issues running the script subsequently, power cycle the platform (not just a reboot) and try the script again.
+
+* The tool will attempt to put the Versal in JTAG bootmode - via FTDI if that is available on the platform and always via XSDB. If the platform is in OSPI mode and OSPI already contains boot code that prevents access to DDR and OSPI from the utility - you may need to change platform to JTAG bootmode via hardware jumpers to prevent OSPI code from executing.
 
 * You may ignore the "rlwrap" warnings.
 
