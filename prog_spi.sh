@@ -9,34 +9,68 @@
 #
 #**********************************************************************
 
+echo "Script started, look for \"Script completed\" for acknowledgement of completion of SPI programming"
 
+cleanup(){
+    kill "${COPROC_PID}"
+    exec {COPROC[0]}>&-
+    exec {COPROC[1]}>&-
+    kill "${XSDB_PID}"
+    ps ax | grep xsdb | grep uart.tcl | awk '{print $1}' | xargs --no-run-if-empty kill -9 2>/dev/null
 
-
-
-wait_for_uart_output() {
-    local pattern="$1"
-    while true; do
-	if  grep -q "Attempted to modify a protected sector" "$uart_log_file"; then
-            echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
-            kill "$tee_pid"
-            kill "$pico_pid"
-	    exit 1
-        elif grep -q "$pattern" "$uart_log_file"; then
-            echo "$pattern found in UART logfile $uart_log_file."
-            return 0
-        fi
-        sleep 0.5  # Check every 500ms
-    done
+    sleep 1
+}
+# Function to send strings to the JTAG UART
+send_to_jtaguart() {
+  local message="$1"
+  echo "$message" >&"${COPROC[1]}"
+  echo "Sent to JTAG UART: $message"
 }
 
+match_jtaguart_output() {
+  local pattern="$1"
+  local timeout="$2"
+
+  local pause=0.1
+
+  while true; do
+    
+    IFS= read -r -t "$timeout" line <&"${COPROC[0]}"
+    
+    if [ $? -ne 0 ]; then
+        echo "Timed out after $timeout seconds - script failed"
+        cleanup
+        exit 1
+    fi
+
+    echo "received on jtag_uart:  $line"
+    if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
+        echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
+        cleanup
+	    exit 1
+    elif echo "$line" | grep -q "$pattern"; then
+      echo "Match found: $line"
+      return 0  # Exit function when match is found
+    fi
+    sleep $pause
+  done
+
+  echo "ERROR: should never see this line"
+
+  exit 1  # No match found
+}
 
 if [ -f /etc/profile.d/xsdb-variables.sh ]; then
     source /etc/profile.d/xsdb-variables.sh
     XSDB_PATH=$XILINX_VITIS
-    XSDB=$XILINX_VITIS/xsdb
+fi
+
+if command -v xsdb >/dev/null 2>&1; then
+    echo "xsdb is in PATH: $(command -v xsdb)"
+    XSDB=$(which xsdb)
 else 
     # Look for xsdb in the system and filter paths containing "bin/xsdb"
-    XSDB_PATH=$(find / -iname xsdb 2>/dev/null | grep "/bin/xsdb" | head -n 1)
+    XSDB_PATH=$(find /usr /opt /tools /home -iname xsdb 2>/dev/null | grep "/bin/xsdb" | head -n 1)
     XSDB=$XSDB_PATH
 
     #echo "Looking for xsdb binary"
@@ -48,33 +82,14 @@ else
         # Add to PATH if not already in PATH
         if [[ ":$PATH:" != *":$XSDB_DIR:"* ]]; then
             export PATH="$XSDB_DIR:$PATH"
-        #    echo "Added $XSDB_DIR to PATH"
-        #else
-        #    echo "$XSDB_DIR is already in PATH"
         fi
     else
-        echo "xsdb binary not found."
+        echo "xsdb binary not found in /usr /opt /tools or /home directory."
+        echo "Please manually add XSDB to PATH and try again"
         exit 1
     fi
 fi
 
-# check if picocom is installed
-if ! command -v picocom &> /dev/null; then
-    echo "Picocom is not installed. Installing it now..."
-    if command -v apt &> /dev/null; then
-        sudo apt install -y picocom
-    else
-        echo "Error: Unsupported package manager. Please install picocom manually."
-        exit 1
-    fi
-#else
-#    echo "Picocom is already installed."
-fi
-
-if ! command -v picocom &> /dev/null; then
-	echo "Picocom installation failed, please install manually"
-	exit 1
-fi
 
 detect_board() {
     eeprom=$(ls /sys/bus/i2c/devices/*/eeprom_cc*/nvmem 2> /dev/null)
@@ -93,7 +108,6 @@ usage () {
     echo "    -d <board>     : Board type.  Supported values"
     echo "                     embplus, rhino, kria_k26, kria_k24c,"
     echo "                     kria_k24i, versal_eval"
-    echo "    -p <port>      : Optional argument to override serial port"
     echo "    -b <boot_file> : Optional argument to override programming boot.bin"
     echo "    -h             : help"
     exit 1
@@ -104,6 +118,7 @@ path_to_boot_bin=""
 device_type=""
 dtb_file=""
 jtag_mux=false
+embplus_reset=false
 
 # Parse arguments
 while getopts "d:i:p:b:h" arg; do
@@ -111,35 +126,30 @@ while getopts "d:i:p:b:h" arg; do
         d)
             case ${OPTARG} in
                 embplus)
-                    uart_dev=${uart_dev:="/dev/ttyUSB2"}
-                    binfile=${binfile:=bin/BOOT_embplus.bin}
+                    binfile=${binfile:=bin/BOOT_embplus_jtaguart.bin}
                     device_type=versal
+                    embplus_reset=true
                     ;;
                 rhino)
-                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
-                    binfile=${binfile:=bin/BOOT_rhino.bin}
+                    binfile=${binfile:=bin/BOOT_rhino_jtaguart.bin}
                     device_type=versal
                     ;;
                 kria_k26)
-                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
                     binfile=${binfile:=bin/zynqmp_fsbl_k26.elf}
-                    dtb_file=bin/system_k26.dtb
+                    dtb_file=bin/system_k26_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 kria_k24c)
-                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
                     binfile=${binfile:=bin/zynqmp_fsbl_k24c.elf}
-                    dtb_file=bin/system_k24c.dtb
+                    dtb_file=bin/system_k24c_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 kria_k24i)
-                    uart_dev=${uart_dev:="/dev/ttyUSB1"}
                     binfile=${binfile:=bin/zynqmp_fsbl_k24i.elf}
-                    dtb_file=bin/system_k24i.dtb
+                    dtb_file=bin/system_k24i_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 versal_eval)
-                    uart_dev=${uart_dev:="/dev/ttyPS1"}
                     BOARD=$(detect_board)
                     echo "Detected board type $BOARD"
                     binfile=bin/BOOT_${BOARD}.bin
@@ -156,9 +166,6 @@ while getopts "d:i:p:b:h" arg; do
             esac
             ;;
 
-        p)
-            uart_dev=$OPTARG
-            ;;
         b)
             binfile=$OPTARG
             ;;
@@ -198,45 +205,94 @@ echo "Boot bin path: $path_to_boot_bin"
 echo "Device type: $device_type"
 
 
-echo "Script started, look for \"Script completed\" for acknowledgement of completion of SPI programming"
-
-uart_log_file="uart_output.log"
-if [ -f "$uart_log_file" ]; then
-    rm "$uart_log_file"
-fi
-
-#echo "turning off ${uart_dev} echo"
-#stty -F  $uart_dev 115200 -ignbrk -brkint -ignpar -parmrk -inpck -istrip -inlcr -igncr -icrnl -ixon -ixoff -iuclc -ixany -imaxbel -iutf8 -opost -olcuc -ocrnl onlcr -onocr -onlret -ofill -ofdel nl0 cr0 tab0 bs0 vt0 ff0 -isig -icanon -iexten -echo echoe echok -echonl -noflsh -xcase -tostop -echoprt echoctl echoke -flusho -extproc
-
-
-if lsof "$uart_dev" &> /dev/null; then
-    echo "Error: Device $uart_dev is already in use by another program. Please stop the program before trying the script again"
-    exit 1
-fi
-
 if $jtag_mux; then
     gpioset $(gpiofind SYSCTLR_JTAG_S0)=0
     gpioset $(gpiofind SYSCTLR_JTAG_S1)=0
 fi
 
-picocom "$uart_dev" -q -b 115200 | tee "$uart_log_file" &
-tee_pid=$!  # Save the process ID to kill it later if needed
-pico_pid=$(jobs -p | tail -n 2 | head -n 1)
+if $embplus_reset; then
+    chmod +x versal/embplus_jtag_porb.py
+    if ! dpkg-query -W -f='${Status}' python3-ftdi 2>/dev/null | grep -q "install ok installed" ; then
+        echo "python3-ftdi is not installed. Installing it now..."
+        if command -v apt &> /dev/null; then
+            sudo apt install python3-ftdi
+        else
+            echo "Error: Unsupported package manager. Please install python3-ftdi manually."
+            exit 1
+        fi
+    fi
+
+    if ! dpkg-query -W -f='${Status}' python3-ftdi 2>/dev/null | grep -q "install ok installed"; then
+        echo "python3-ftdi installation failed, please install manually"
+        exit 1
+    fi
+    sleep 1
+    echo "Setting EmbPlus to JTAG mode and performing por_b reset"
+    sudo modprobe -r  xclmgmt &> /dev/null
+    sudo modprobe -r  xocl &> /dev/null
+    python3 versal/embplus_jtag_porb.py
+    sleep 1
+fi
+
+# Run the xsdb script to start jtag uart and capture the socket port
+socket_file=tmp.socket
+$XSDB ${device_type}/uart.tcl   &> $socket_file &
+XSDB_PID=$!
+
+
+rt=0
+while [ "$SOCK" == "" ] && [ $rt -lt 10 ]; do
+   SOCK=$(tail -n 1 $socket_file)
+   rt=$(( rt + 1 ))
+   sleep 1
+done
+echo $SOCK
+
+
+# Check if the socket was created successfully
+if [[ ! "$SOCK" =~ ^[0-9]+$ ]]; then
+  echo "Failed to extract a valid JTAG UART socket number. Output was:"
+  echo "$SOCK"
+  exit 1
+fi
+
+echo "JTAG UART socket started on port $SOCK"
+
+# Ensure no previous coprocess is interfering
+if [[ -n "${COPROC[0]+set}" ]]; then
+    exec {COPROC[0]}>&- 2>/dev/null
+fi
+if [[ -n "${COPROC[1]+set}" ]]; then
+    exec {COPROC[1]}>&- 2>/dev/null
+fi
+
+coproc nc localhost $SOCK
+COPROC_PID=$!
+
+# Drain any old data from the read pipe
+while IFS= read -r -t 0.1 junk <&"${COPROC[0]}"; do
+    :  # Do nothing, just clear the buffer
+done
 
 $XSDB ${device_type}/jtag_boot.tcl $binfile $dtb_file
 
-echo -en "\r" > $uart_dev
+
+sleep 2  # Wait a moment for nc to initialize
+
+
+send_to_jtaguart " " 
 sleep 1
-echo -en "\r" > $uart_dev
+send_to_jtaguart " "
 sleep 1
-echo -en "\r" > $uart_dev
+send_to_jtaguart " "
 sleep 1
 
 
 $XSDB ${device_type}/download_data.tcl $path_to_boot_bin
 
-echo -en "sf probe 0x0 0x0 0x0\r" > $uart_dev
-wait_for_uart_output "Detected"
+send_to_jtaguart "sf probe 0x0 0x0 0x0"
+
+match_jtaguart_output "Detected" 10
 
 echo
 echo "SPI Erasing and programming...this could take up to 5 minutes"
@@ -245,25 +301,23 @@ echo
 bin_size=$(stat --printf="%s" $path_to_boot_bin)
 bin_size_hex=$(printf "%08x" $bin_size)
 
-echo -en "sf update 0x80000 0x0 $bin_size_hex\r" > "$uart_dev"
+send_to_jtaguart "sf update 0x80000 0x0 $bin_size_hex"
 
-wait_for_uart_output "written"
+
+match_jtaguart_output "written" 600
 echo
 echo "SPI written successfully."
 echo
 
+cleanup
 
 if $jtag_mux; then
-    gpioget $(gpiofind SYSCTLR_JTAG_S0)
-    gpioget $(gpiofind SYSCTLR_JTAG_S1)
+    gpioget $(gpiofind SYSCTLR_JTAG_S0) >/dev/null
+    gpioget $(gpiofind SYSCTLR_JTAG_S1) >/dev/null
 fi
 
 echo
 echo "Script completed"
-
-# Clean up: stop the UART logging
-kill "$tee_pid"
-kill "$pico_pid"
 
 
 exit 0
