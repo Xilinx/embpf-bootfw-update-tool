@@ -449,6 +449,7 @@ if $check_blank; then
     echo
     send_to_jtaguart "sf read $verify_ddr_addr 0 $flash_size_hex"
     match_jtaguart_output "OK" 1000
+    sleep 10
     send_to_jtaguart "mw.b $binfile_ddr_addr 0xff $flash_size_hex"
     sleep 1
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $flash_size_hex"
@@ -472,6 +473,7 @@ if $verify; then
     # read flash content to 0x2000_0000
     send_to_jtaguart "sf read $verify_ddr_addr 0x0 $bin_size_hex"
     match_jtaguart_output "OK" 1000
+    sleep 10
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $bin_size_hex"
     match_jtaguart_output "were the same" 1000
     echo "Verification successful"
