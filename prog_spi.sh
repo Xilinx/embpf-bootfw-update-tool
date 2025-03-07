@@ -113,13 +113,17 @@ fi
 
 
 detect_board() {
+    if ! command -v ipmi-fru &> /dev/null; then
+        echo "Error: Script failed - ipmi-fru command not found. Please install it first."  >&2
+        return 1
+    fi
     eeprom=$(ls /sys/bus/i2c/devices/*/eeprom_cc*/nvmem 2> /dev/null)
     if [ -n "${eeprom}" ]; then
         boardid=$(ipmi-fru --fru-file=${eeprom} --interpret-oem-data | awk -F": " '/FRU Board Product/ { print tolower ($2) }')
         echo $boardid
     else
-        echo "Error: Script failed - unable to identify board type"
-        exit 1
+        echo "Error: Script failed - unable to identify board type"  >&2
+        return 1
     fi
 }
 
@@ -199,6 +203,10 @@ while getopts "d:i:b:s:pvhc" arg; do
                     ;;
                 versal_eval)
                     BOARD=$(detect_board)
+                    if [ -z "$BOARD" ]; then
+                        echo "Error: Script failed - Unable to identify board type."
+                        exit 1
+                    fi
                     echo "Detected board type $BOARD"
                     binfile="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin
                     binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin}
