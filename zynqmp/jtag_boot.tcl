@@ -7,7 +7,9 @@
 ################################################################################
 
 puts stderr "Starting the script..."
-connect
+source zynqmp/jtag_ready.tcl
+jtag_ready
+
 
 # required for jtag uart - setting jtag mode moved to uart.tcl
 #targets -set -nocase -filter {name =~ "PSU"}

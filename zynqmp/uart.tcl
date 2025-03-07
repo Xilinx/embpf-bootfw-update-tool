@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: MIT
 ###############################################################################
 
-connect
+source zynqmp/jtag_ready.tcl
+jtag_ready
 
 targets -set -nocase -filter {name =~ "PSU"}
 # update multiboot to ZERO

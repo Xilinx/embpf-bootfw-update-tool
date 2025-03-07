@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: MIT
 ###############################################################################
 
-connect
+source versal/boot_mode.tcl
+jtag_ready
 targets -set -nocase -filter {name =~ "Cortex-A72 #0*"}
 set sock [jtagterminal -start -socket]
 puts $sock ;
