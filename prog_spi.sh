@@ -15,9 +15,15 @@ cleanup(){
     kill "${COPROC_PID}"
     exec {COPROC[0]}>&-
     exec {COPROC[1]}>&-
-    kill "${XSDB_PID}"
+    if [[ ! -z "${XSDB_PID}" ]]; then
+        kill "${XSDB_PID}"
+    fi
     ps ax | grep xsdb | grep uart.tcl | awk '{print $1}' | xargs --no-run-if-empty kill -9 2>/dev/null
 
+    if $jtag_mux; then
+        gpioget $(gpiofind SYSCTLR_JTAG_S0) >/dev/null
+        gpioget $(gpiofind SYSCTLR_JTAG_S1) >/dev/null
+    fi
     sleep 1
 }
 # Function to send strings to the JTAG UART
@@ -38,25 +44,40 @@ match_jtaguart_output() {
     IFS= read -r -t "$timeout" line <&"${COPROC[0]}"
     
     if [ $? -ne 0 ]; then
-        echo "Timed out after $timeout seconds - script failed"
+        echo "Error: Timed out after $timeout seconds - script failed"
         cleanup
         exit 1
     fi
 
     echo "received on jtag_uart:  $line"
+    if echo "$line" | grep -q "SF: Detected" ; then
+        flash_size_print=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if ($i=="total") print $(i+1)}')
+        flash_size_hex=$(printf "0x%X\n" $(( $flash_size_print * 1024 * 1024 )))
+    fi
+
     if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
-        echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
+        echo "Error: The flash is locked and cannot be modified - script failed"
         cleanup
 	    exit 1
+    elif echo "$line" | grep -q "!= byte at"; then
+        if $check_blank; then
+            echo "Flash is not blank: $line"
+            cleanup
+            exit 1
+        else
+            echo "Error: Data mismatch, verification failed: $line"
+            cleanup
+            exit 1
+        fi
     elif echo "$line" | grep -q "$pattern"; then
-      echo "Match found: $line"
-      return 0  # Exit function when match is found
+        echo "Match found: $line"
+        return 0 
     fi
     sleep $pause
   done
 
   echo "ERROR: should never see this line"
-
+  cleanup
   exit 1  # No match found
 }
 
@@ -84,8 +105,8 @@ else
             export PATH="$XSDB_DIR:$PATH"
         fi
     else
-        echo "xsdb binary not found in /usr /opt /tools or /home directory."
-        echo "Please manually add XSDB to PATH and try again"
+        echo "Error: xsdb binary not found in /usr /opt /tools or /home directory."
+        echo "       Script failed - please manually add XSDB to PATH and try again"
         exit 1
     fi
 fi
@@ -97,19 +118,34 @@ detect_board() {
         boardid=$(ipmi-fru --fru-file=${eeprom} --interpret-oem-data | awk -F": " '/FRU Board Product/ { print tolower ($2) }')
         echo $boardid
     else
-        echo "Unable to identify board type"
+        echo "Error: Script failed - unable to identify board type"
         exit 1
     fi
 }
 
 usage () {
-    echo "Usage: $0 -i <path_to_boot.bin> -d <board_type>"
-    echo "    -i <file>      : File to write to OSPI/QSPI"
+    echo "Default Usage: $0 -i <path_to_boot.bin> -d <board_type>"
+    echo "    -i <file>      : File to write to OSPI/QSPI, can be a .bin or a gzip of the .bin file"
     echo "    -d <board>     : Board type.  Supported values"
     echo "                     embplus, rhino, kria_k26, kria_k24c,"
     echo "                     kria_k24i, versal_eval"
     echo "    -b <boot_file> : Optional argument to override programming boot.bin"
+    echo "    -s <SOCK #>    : Optional argument to specify remote uart SOCK number"
+    echo "    -p             : Optional argument program SPI, this is set by default except if -v or -b is present"
+    echo "    -v             : verification of flash content, if -pv are both present, tool will program and verify. if only -v is set, tool will  verify content of SPI against -i  <file> without programming"
+    echo "    -c             : check if flash is blank/erased"
     echo "    -h             : help"
+    echo "Example usage"
+    echo "to program:"
+    echo "     $0 -i <path_to_boot.bin> -d <board_type>"
+    echo "to program:"
+    echo "     $0 -p -i <path_to_boot.bin> -d <board_type>"
+    echo "to program and verify:"
+    echo "     $0 -pv -i <path_to_boot.bin> -d <board_type>"
+    echo "to verify only:"
+    echo "     $0 -v -i <path_to_boot.bin> -d <board_type>"
+    echo "to check if SPI is blank:"
+    echo "     $0 -c -d <board_type>"
     exit 1
 }
 
@@ -118,44 +154,57 @@ path_to_boot_bin=""
 device_type=""
 dtb_file=""
 jtag_mux=false
+flash_size_hex=""
 embplus_reset=false
+scapp_support=false
+verify=false
+prog_spi=false
+check_blank=false
+b_flag_set=false
+i_flag_set=false
+remote_uart=0
+SCRIPT_PATH=$(dirname $0)
 
 # Parse arguments
-while getopts "d:i:p:b:h" arg; do
+while getopts "d:i:b:s:pvhc" arg; do
     case "$arg" in
+        p)
+            prog_spi=true 
+            ;;
         d)
             case ${OPTARG} in
                 embplus)
-                    binfile=${binfile:=bin/BOOT_embplus_jtaguart.bin}
+                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_embplus_jtaguart.bin}
                     device_type=versal
                     embplus_reset=true
                     ;;
                 rhino)
-                    binfile=${binfile:=bin/BOOT_rhino_jtaguart.bin}
+                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_rhino_jtaguart.bin}
                     device_type=versal
                     ;;
                 kria_k26)
-                    binfile=${binfile:=bin/zynqmp_fsbl_k26.elf}
+                    binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k26.elf}
                     dtb_file=bin/system_k26_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 kria_k24c)
-                    binfile=${binfile:=bin/zynqmp_fsbl_k24c.elf}
-                    dtb_file=bin/system_k24c_jtag_uart.dtb
+                    binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k24c.elf}
+                    dtb_file="${SCRIPT_PATH}"/bin/system_k24c_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 kria_k24i)
-                    binfile=${binfile:=bin/zynqmp_fsbl_k24i.elf}
-                    dtb_file=bin/system_k24i_jtag_uart.dtb
+                    binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k24i.elf}
+                    dtb_file="${SCRIPT_PATH}"/bin/system_k24i_jtag_uart.dtb
                     device_type=zynqmp
                     ;;
                 versal_eval)
                     BOARD=$(detect_board)
                     echo "Detected board type $BOARD"
-                    binfile=bin/BOOT_${BOARD}.bin
-                    binfile=${binfile:=bin/BOOT_${BOARD}.bin}
+                    binfile="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin
+                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin}
                     device_type=versal
                     jtag_mux=true
+                    scapp_support=true
                     ;;
                 *)
                     echo
@@ -167,9 +216,11 @@ while getopts "d:i:p:b:h" arg; do
             ;;
 
         b)
-            binfile=$OPTARG
+            b_flag_set=true
+            overwrite_binfile=$OPTARG
             ;;
         i)
+            i_flag_set=true
             path_to_boot_bin="${OPTARG}"
             if [ ! -e "$path_to_boot_bin" ]; then
                 echo
@@ -178,26 +229,99 @@ while getopts "d:i:p:b:h" arg; do
                 usage
             fi
             ;;
+        s)
+            remote_uart="${OPTARG}"
+            ;;
+        v)
+            verify=true
+            ;;
+        c)
+            check_blank=true
+            ;;
         h)
+            usage
+            ;;
+        *)
+            echo "Unknown argument $OPTARG"
             usage
             ;;
     esac
 done
 
-if [ $UID -ne 0 ]; then
-    echo "Must be root"
-    exit 1
-fi
-
 # Check if path_to_boot_bin is empty or device_type is not set
-if [ -z "$path_to_boot_bin" ] || [ -z "$device_type" ]; then
+if [ -z "$device_type" ]; then
+    echo "Device type not specified"
     usage
 fi
 
+
+if ! $check_blank && ! $verify; then
+    prog_spi=true
+    echo "Default to programming flash"
+fi
+
+if $check_blank; then
+    if $verify; then
+        echo "-v and -c cannot be set at the same time"
+        usage
+    fi
+    if $prog_spi; then
+        echo "-p and -c cannot be set at the same time"
+        usage
+    fi
+    if $b_flag_set || $i_flag_set; then
+        echo "-c option does not require any input files, please check and try again"
+        usage
+    fi
+else
+    if [ -z "$path_to_boot_bin" ] ; then
+        echo "File to program into SPI or to verify against SPI not specified with -i"
+        usage
+    fi
+fi
+
+if $b_flag_set; then
+    binfile=$overwrite_binfile
+fi
+
+if [ $UID -ne 0 ]; then
+    echo "Error: Script failed - must be root"
+    exit 1
+fi
+
+if ! $check_blank; then
+    # check -i for symbolic link
+    if [ -L "$path_to_boot_bin" ]; then
+        actual_target=$(readlink -f "$path_to_boot_bin")
+        echo "$path_to_boot_bin is a symbolic link to $actual_target"
+        path_to_boot_bin="$actual_target"
+        if [ ! -e "$path_to_boot_bin" ]; then
+                    echo "Unable to find file $path_to_boot_bin"
+        fi
+    fi
+
+    # find size of -i input, accounting for gzip format
+    format=$(file "$path_to_boot_bin" | awk '{print $2}')
+    if [ "$format" == "gzip" ]; then
+        bin_size=$(file "$path_to_boot_bin" | awk '{print $NF}')
+    else
+        bin_size=$(stat -c "%s" "$path_to_boot_bin")
+    fi
+    bin_size_hex=$(printf "%08x" $bin_size)
+    echo "Size of bin file to program is 0x$bin_size_hex"
+fi
+
 # Check if the bootbin file has been copied over
-if [ ! -f $binfile ]; then
-   echo "Error: File $binfile does not exist, please download bin.zip from release area in the repo and place in this folder"
-   exit 1
+if [ ! -f "$binfile" ]; then
+   echo "File "$binfile" does not exist, auto downloading bin.zip"
+   wget https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v2.0/bin.zip
+   unzip bin.zip
+   if [ ! -f "$binfile" ]; then
+       echo "Error: File "$binfile" does not exist and auto download failed"
+       echo "       please manually download bin.zip from release area in the"
+       echo "       repo and place in this folder. Script failed"
+       exit 1
+    fi
 fi
 
 # Print the chosen options
@@ -210,6 +334,11 @@ if $jtag_mux; then
     gpioset $(gpiofind SYSCTLR_JTAG_S1)=0
 fi
 
+if $scapp_support; then
+    sc_app -c setbootmode -t JTAG
+    sc_app -c reset
+fi
+
 if $embplus_reset; then
     chmod +x versal/embplus_jtag_porb.py
     if ! dpkg-query -W -f='${Status}' python3-ftdi 2>/dev/null | grep -q "install ok installed" ; then
@@ -217,13 +346,15 @@ if $embplus_reset; then
         if command -v apt &> /dev/null; then
             sudo apt install python3-ftdi
         else
-            echo "Error: Unsupported package manager. Please install python3-ftdi manually."
+            echo "Error: Unsupported package manager. Please install python3-ftdi"
+            echo "       manually. Script failed."
             exit 1
         fi
     fi
 
     if ! dpkg-query -W -f='${Status}' python3-ftdi 2>/dev/null | grep -q "install ok installed"; then
-        echo "python3-ftdi installation failed, please install manually"
+        echo "Error: python3-ftdi installation failed, please install manually"
+        echo "       Script failed."
         exit 1
     fi
     sleep 1
@@ -234,29 +365,32 @@ if $embplus_reset; then
     sleep 1
 fi
 
-# Run the xsdb script to start jtag uart and capture the socket port
-socket_file=tmp.socket
-$XSDB ${device_type}/uart.tcl   &> $socket_file &
-XSDB_PID=$!
+if [ $remote_uart -ne 0 ]; then
+  SOCK=$remote_uart
+else
+    # Run the xsdb script to start jtag uart and capture the socket port
+    socket_file=tmp.socket
+    $XSDB "${SCRIPT_PATH}"/${device_type}/uart.tcl   &> $socket_file &
+    XSDB_PID=$!
 
+    rt=0
+    while [ "$SOCK" == "" ] && [ $rt -lt 10 ]; do
+    SOCK=$(tail -n 1 $socket_file)
+    rt=$(( rt + 1 ))
+    sleep 1
+    done
+    echo $SOCK
 
-rt=0
-while [ "$SOCK" == "" ] && [ $rt -lt 10 ]; do
-   SOCK=$(tail -n 1 $socket_file)
-   rt=$(( rt + 1 ))
-   sleep 1
-done
-echo $SOCK
+    # Check if the socket was created successfully
+    if [[ ! "$SOCK" =~ ^[0-9]+$ ]]; then
+    echo "Error: Script failed to extract a valid JTAG UART socket number."
+    echo "       Output was: $SOCK"
+    exit 1
+    fi
 
-
-# Check if the socket was created successfully
-if [[ ! "$SOCK" =~ ^[0-9]+$ ]]; then
-  echo "Failed to extract a valid JTAG UART socket number. Output was:"
-  echo "$SOCK"
-  exit 1
+    echo "JTAG UART socket started on port $SOCK"
 fi
 
-echo "JTAG UART socket started on port $SOCK"
 
 # Ensure no previous coprocess is interfering
 if [[ -n "${COPROC[0]+set}" ]]; then
@@ -274,7 +408,7 @@ while IFS= read -r -t 0.1 junk <&"${COPROC[0]}"; do
     :  # Do nothing, just clear the buffer
 done
 
-$XSDB ${device_type}/jtag_boot.tcl $binfile $dtb_file
+$XSDB "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file"
 
 
 sleep 2  # Wait a moment for nc to initialize
@@ -287,34 +421,63 @@ sleep 1
 send_to_jtaguart " "
 sleep 1
 
-
-$XSDB ${device_type}/download_data.tcl $path_to_boot_bin
-
 send_to_jtaguart "sf probe 0x0 0x0 0x0"
+match_jtaguart_output "SF: Detected" 10
 
-match_jtaguart_output "Detected" 10
-
-echo
-echo "SPI Erasing and programming...this could take up to 5 minutes"
-echo
-
-bin_size=$(stat --printf="%s" $path_to_boot_bin)
-bin_size_hex=$(printf "%08x" $bin_size)
-
-send_to_jtaguart "sf update 0x80000 0x0 $bin_size_hex"
+echo "Flash size is $flash_size_hex"
+#kria QSPI size is 0x400_0000, embplus OSPI size is 0x1000_0000
+zipfile_ddr_addr="0x80000" #this is set in download_data.tcl
+binfile_ddr_addr="0x80000" #this is set in download_data.tcl
+unzipped_binfile_ddr_addr="0x10000000" #if -i has a gzip file, location to unzip to - should be minimumly size of flash
+verify_ddr_addr="0x20000000" #location to copy SPI contents to during verify/blank check. should minimumly be flash size *2
 
 
-match_jtaguart_output "written" 600
-echo
-echo "SPI written successfully."
-echo
+if $verify || $prog_spi; then
+    $XSDB "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin"
+    if [ "$format" == "gzip" ]; then
+        binfile_ddr_addr=$unzipped_binfile_ddr_addr
+        send_to_jtaguart "unzip $zipfile_ddr_addr $binfile_ddr_addr"
+        match_jtaguart_output "Uncompressed size:" 1000
+    fi
+fi
+
+
+
+if $check_blank; then
+    echo
+    echo "check to see if flash is blank"
+    echo
+    send_to_jtaguart "sf read $verify_ddr_addr 0 $flash_size_hex"
+    match_jtaguart_output "OK" 1000
+    send_to_jtaguart "mw.b $binfile_ddr_addr 0xff $flash_size_hex"
+    sleep 1
+    send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $flash_size_hex"
+    match_jtaguart_output "were the same" 1000
+    echo "Blank check successful - flash is blank/erased"
+fi
+
+
+if $prog_spi; then
+    echo
+    echo "SPI Erasing and programming...this could take up to 5 minutes"
+    echo
+    send_to_jtaguart "sf update $binfile_ddr_addr 0x0 $bin_size_hex"
+    match_jtaguart_output "written" 1000
+    echo
+    echo "SPI written successfully."
+    echo
+fi
+
+if $verify; then
+    # read flash content to 0x2000_0000
+    send_to_jtaguart "sf read $verify_ddr_addr 0x0 $bin_size_hex"
+    match_jtaguart_output "OK" 1000
+    send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $bin_size_hex"
+    match_jtaguart_output "were the same" 1000
+    echo "Verification successful"
+fi
 
 cleanup
-
-if $jtag_mux; then
-    gpioget $(gpiofind SYSCTLR_JTAG_S0) >/dev/null
-    gpioget $(gpiofind SYSCTLR_JTAG_S1) >/dev/null
-fi
 
 echo
 echo "Script completed"
