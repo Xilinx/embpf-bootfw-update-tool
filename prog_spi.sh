@@ -459,7 +459,7 @@ verify_ddr_addr="0x20000000" #location to copy SPI contents to during verify/bla
 
 
 if $verify || $prog_spi; then
-    $XSDB "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin" 
+    $XSDB -interactive "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin" 
 
     if [ "$format" == "gzip" ]; then
         binfile_ddr_addr=$unzipped_binfile_ddr_addr

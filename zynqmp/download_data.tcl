@@ -10,4 +10,5 @@ after 2000
 puts "downloading flash content to DDR"
 dow -force -data [lindex $argv 0]  0x80000
 puts "content downloaded to DDR, prepare to write to flash"
-
+disconnect
+exit
