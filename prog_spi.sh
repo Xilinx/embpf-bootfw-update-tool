@@ -30,7 +30,7 @@ cleanup(){
 send_to_jtaguart() {
   local message="$1"
   echo "$message" >&"${COPROC[1]}"
-  echo "Sent to JTAG UART: $message"
+  echo "Sent to UART: $message"
 }
 
 print_progress() {
@@ -38,13 +38,19 @@ print_progress() {
   local timeout="$2"
   while true; do
     IFS= read -r -t "$timeout" -n 1 character <&"${COPROC[0]}"
+    if [ $? -ne 0 ]; then
+        echo "Error: Timed out after $timeout seconds - script failed"
+        cleanup
+        exit 1
+    fi
     if [[ "$character" == $'\r' ]]; then
-        echo $buffer
+        echo "received on UART: $buffer"
         buffer=""
     else
         buffer+="$character"
         if [[ "$buffer" == *"$pattern"* ]]; then
-            echo $buffer
+            IFS= read -r -t "$timeout" line <&"${COPROC[0]}"
+            echo "received on UART: $buffer $line"
             return
         fi
     fi
@@ -67,7 +73,7 @@ match_jtaguart_output() {
         exit 1
     fi
 
-    echo "received on jtag_uart:  $line"
+    echo "received on UART:  $line"
     if echo "$line" | grep -q "SF: Detected" ; then
         flash_size_print=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if ($i=="total") print $(i+1)}')
         flash_size_hex=$(printf "0x%X\n" $(( $flash_size_print * 1024 * 1024 )))
@@ -459,7 +465,7 @@ verify_ddr_addr="0x20000000" #location to copy SPI contents to during verify/bla
 
 
 if $verify || $prog_spi; then
-    $XSDB -interactive "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin" 
+    $XSDB -interactive "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin" | tr '\r' '\n'
 
     if [ "$format" == "gzip" ]; then
         binfile_ddr_addr=$unzipped_binfile_ddr_addr
@@ -491,7 +497,6 @@ if $prog_spi; then
     echo
     send_to_jtaguart "sf update $binfile_ddr_addr 0x0 $bin_size_hex"
     print_progress "written" 10
-    match_jtaguart_output "speed" 1000
     echo
     echo "SPI written successfully."
     echo
