@@ -33,6 +33,24 @@ send_to_jtaguart() {
   echo "Sent to JTAG UART: $message"
 }
 
+print_progress() {
+  local pattern="$1"
+  local timeout="$2"
+  while true; do
+    IFS= read -r -t "$timeout" -n 1 character <&"${COPROC[0]}"
+    if [[ "$character" == $'\r' ]]; then
+        echo $buffer
+        buffer=""
+    else
+        buffer+="$character"
+        if [[ "$buffer" == *"$pattern"* ]]; then
+            echo $buffer
+            return
+        fi
+    fi
+  done
+}
+
 match_jtaguart_output() {
   local pattern="$1"
   local timeout="$2"
@@ -441,7 +459,8 @@ verify_ddr_addr="0x20000000" #location to copy SPI contents to during verify/bla
 
 
 if $verify || $prog_spi; then
-    $XSDB "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin"
+    $XSDB "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin" 
+
     if [ "$format" == "gzip" ]; then
         binfile_ddr_addr=$unzipped_binfile_ddr_addr
         send_to_jtaguart "unzip $zipfile_ddr_addr $binfile_ddr_addr"
@@ -471,7 +490,8 @@ if $prog_spi; then
     echo "SPI Erasing and programming...this could take up to 5 minutes"
     echo
     send_to_jtaguart "sf update $binfile_ddr_addr 0x0 $bin_size_hex"
-    match_jtaguart_output "written" 1000
+    print_progress "written" 10
+    match_jtaguart_output "speed" 1000
     echo
     echo "SPI written successfully."
     echo
