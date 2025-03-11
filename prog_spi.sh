@@ -33,20 +33,26 @@ send_to_jtaguart() {
   fi
 }
 
+#Blue progress bar
+#BARSTR='\r\e[44;38;5;25m%s\e[0m%4.0f%%'
+
+#Black and White progress bar
+BARSTR='\r%s%4.0f%%'
+
 print_progress() {
   local iosource="$1"
   local pattern="$2"
   local timeout="$3"
 
-  if [ $COLUMNS -lt 87 ]; then
-      PROG_WIDTH=$((COLUMNS - 7))
+  if [ $COLUMNS -lt 85 ]; then
+      PROG_WIDTH=$((COLUMNS - 5))
   else
       PROG_WIDTH=80
   fi
 
   if ! $verboase; then
     percentBar 0 $PROG_WIDTH bar
-    printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" 0
+    printf $BARSTR "$bar" 0
   fi
 
   if [ "$iosource" == "term" ]; then 
@@ -66,7 +72,7 @@ print_progress() {
             elif [ "$(echo "$buffer" | grep -e "..%")" != "" ]; then
                 val=$(echo $buffer | sed -e 's/.* \(.*\)%.*/\1/')
                 percentBar $val $PROG_WIDTH bar
-                printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" $val
+                printf $BARSTR "$bar" $val
                 if [ $val -eq 100 ]; then
                     echo
                     return 0
@@ -81,7 +87,7 @@ print_progress() {
                     echo "received on UART: $buffer $line"
                 else
                     percentBar 100 $PROG_WIDTH bar
-                    printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" 100
+                    printf $BARSTR "$bar" 100
                     echo
                 fi
                 return 0
@@ -104,7 +110,7 @@ print_progress() {
         if [ "$(echo "$line" | grep -e "..%")" != "" ]; then
             val=$(echo $line | sed -e 's/\(.*\)%.*/\1/')
             percentBar $val $PROG_WIDTH bar
-            printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" $val
+            printf $BARSTR "$bar" $val
             if [ $val -eq 100 ]; then
                 printf '\n'
             fi
