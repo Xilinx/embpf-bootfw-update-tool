@@ -9,8 +9,6 @@
 #
 #**********************************************************************
 
-echo "Script started, look for \"Script completed\" for acknowledgement of completion of SPI programming"
-
 cleanup(){
     kill "${COPROC_PID}"
     exec {COPROC[0]}>&-
@@ -30,32 +28,83 @@ cleanup(){
 send_to_jtaguart() {
   local message="$1"
   echo "$message" >&"${COPROC[1]}"
-  echo "Sent to UART: $message"
+  if $verbose; then
+    echo "Sent to JTAG UART: $message"
+  fi
 }
 
 print_progress() {
-  local pattern="$1"
-  local timeout="$2"
-  while true; do
-    IFS= read -r -t "$timeout" -n 1 character <&"${COPROC[0]}"
-    if [ $? -ne 0 ]; then
-        echo "Error: Timed out after $timeout seconds - script failed"
-        cleanup
-        exit 1
-    fi
-    if [[ "$character" == $'\r' ]]; then
-        echo "received on UART: $buffer"
-        buffer=""
-    else
-        buffer+="$character"
-        if [[ "$buffer" == *"$pattern"* ]]; then
-            IFS= read -r -t "$timeout" line <&"${COPROC[0]}"
-            echo "received on UART: $buffer $line"
-            return
+  local iosource="$1"
+  local pattern="$2"
+  local timeout="$3"
+
+  if ! $verboase; then
+    percentBar 0 80 bar
+    printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" 0
+  fi
+
+  if [ "$iosource" == "term" ]; then 
+    while true; do
+        IFS= read -r -t "$timeout" -n 1 character <&"${COPROC[0]}"
+        if [ $? -ne 0 ]; then
+            echo "Error: Timed out after $timeout seconds - script failed"
+            cleanup
+            exit 1
         fi
-    fi
-  done
+        if [[ "$character" == $'\r' ]]; then
+            if $verbose; then
+                echo "received on UART: $buffer"
+            elif [ "$(echo "$buffer" | grep -e "..%")" != "" ]; then
+                val=$(echo $buffer | sed -e 's/.* \(.*\)%.*/\1/')
+                percentBar $val 80 bar
+                printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" $val
+                if [ $val -eq 100 ]; then
+                    echo
+                    return 0
+                fi
+            fi
+            buffer=""
+        else
+            buffer+="$character"
+            if [[ "$buffer" == *"$pattern"* ]]; then
+                if $verbose; then
+                    IFS= read -r -t "$timeout" line <&"${COPROC[0]}"
+                    echo "received on UART: $buffer $line"
+                else
+                    percentBar 100 80 bar
+                    printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" 100
+                    echo
+                fi
+                return
+            fi
+        fi
+    done
+  elif [ "$iosource" == "xsdb" ]; then 
+    while true; do
+        read -r -t "$timeout" line 
+        
+        if [ $? -ne 0 ]; then
+            echo "Timed out after $timeout seconds - script failed"
+            exit 1
+        fi
+
+        if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
+            echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
+            exit 1
+        elif [ "$(echo "$line" | grep -e "..%")" != "" ]; then
+            val=$(echo $line | sed -e 's/\(.*\)%.*/\1/')
+            percentBar $val 80 bar
+            printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" $val
+            if [ $val -eq 100 ]; then
+                echo
+                return 0
+            fi
+        fi
+
+    done
+  fi
 }
+
 
 match_jtaguart_output() {
   local pattern="$1"
@@ -73,7 +122,9 @@ match_jtaguart_output() {
         exit 1
     fi
 
-    echo "received on UART:  $line"
+    if $verbose; then
+        echo "received on jtag_uart:  $line"
+    fi
     if echo "$line" | grep -q "SF: Detected" ; then
         flash_size_print=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if ($i=="total") print $(i+1)}')
         flash_size_hex=$(printf "0x%X\n" $(( $flash_size_print * 1024 * 1024 )))
@@ -94,15 +145,36 @@ match_jtaguart_output() {
             exit 1
         fi
     elif echo "$line" | grep -q "$pattern"; then
-        echo "Match found: $line"
+        if $verbose; then
+            echo "Match found: $line"
+        fi
         return 0 
     fi
-    sleep $pause
   done
 
   echo "ERROR: should never see this line"
   cleanup
   exit 1  # No match found
+}
+
+percentBar ()  { 
+    local prct totlen=$((8*$2)) lastchar barstring blankstring;
+    printf -v prct %.2f "$1"
+    ((prct=10#${prct/.}*totlen/10000, prct%8)) &&
+        printf -v lastchar '\\U258%X' $(( 16 - prct%8 )) ||
+            lastchar=''
+    printf -v barstring '%*s' $((prct/8)) ''
+    printf -v barstring '%b' "${barstring// /\\U2588}$lastchar"
+    printf -v blankstring '%*s' $(((totlen-prct)/8)) ''
+    printf -v "$3" '%s%s' "$barstring" "$blankstring"
+}
+
+xsdb_cmd () {
+    if $verbose; then
+        $XSDB -interactive $* | stdbuf -oL tr '\r' '\n'
+    else
+        $XSDB -interactive $* | stdbuf -oL tr '\r' '\n' | print_progress "xsdb" "written" 1000
+    fi
 }
 
 if [ -f /etc/profile.d/xsdb-variables.sh ]; then
@@ -111,7 +183,7 @@ if [ -f /etc/profile.d/xsdb-variables.sh ]; then
 fi
 
 if command -v xsdb >/dev/null 2>&1; then
-    echo "xsdb is in PATH: $(command -v xsdb)"
+    #echo "xsdb is in PATH: $(command -v xsdb)"
     XSDB=$(which xsdb)
 else 
     # Look for xsdb in the system and filter paths containing "bin/xsdb"
@@ -162,6 +234,7 @@ usage () {
     echo "    -p             : Optional argument program SPI, this is set by default except if -v or -b is present"
     echo "    -v             : verification of flash content, if -pv are both present, tool will program and verify. if only -v is set, tool will  verify content of SPI against -i  <file> without programming"
     echo "    -c             : check if flash is blank/erased"
+    echo "    -V             : verbose logging"
     echo "    -h             : help"
     echo "Example usage"
     echo "to program:"
@@ -192,11 +265,14 @@ b_flag_set=false
 i_flag_set=false
 remote_uart=0
 SCRIPT_PATH=$(dirname $0)
+verbose=false
+num_operations=2
 
 # Parse arguments
-while getopts "d:i:b:s:pvhc" arg; do
+while getopts "d:i:b:s:pvhcV" arg; do
     case "$arg" in
         p)
+            num_operations=$(( num_operations + 1 ))
             prog_spi=true 
             ;;
         d)
@@ -266,12 +342,17 @@ while getopts "d:i:b:s:pvhc" arg; do
             ;;
         v)
             verify=true
+            num_operations=$(( num_operations + 1 ))
             ;;
         c)
             check_blank=true
+            num_operations=$(( num_operations + 1 ))
             ;;
         h)
             usage
+            ;;
+        V)
+            verbose=true
             ;;
         *)
             echo "Unknown argument $OPTARG"
@@ -356,6 +437,10 @@ if [ ! -f "$binfile" ]; then
     fi
 fi
 
+if $verbose; then
+    echo "Script started, look for \"Script completed\" for acknowledgement of completion of SPI programming"
+fi
+
 # Print the chosen options
 echo "Boot bin path: $path_to_boot_bin"
 echo "Device type: $device_type"
@@ -411,16 +496,17 @@ else
     rt=$(( rt + 1 ))
     sleep 1
     done
-    echo $SOCK
-
+  
     # Check if the socket was created successfully
     if [[ ! "$SOCK" =~ ^[0-9]+$ ]]; then
     echo "Error: Script failed to extract a valid JTAG UART socket number."
     echo "       Output was: $SOCK"
     exit 1
-    fi
+  fi
 
+  if $verbose; then
     echo "JTAG UART socket started on port $SOCK"
+  fi
 fi
 
 
@@ -440,23 +526,25 @@ while IFS= read -r -t 0.1 junk <&"${COPROC[0]}"; do
     :  # Do nothing, just clear the buffer
 done
 
-$XSDB "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file"
+step=1
+echo "Booting device over JTAG (step $step/$num_operations)"
+step=$(( step + 1 ))
+xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file"
 
 
 sleep 2  # Wait a moment for nc to initialize
 
 
 send_to_jtaguart " " 
-sleep 1
 send_to_jtaguart " "
-sleep 1
 send_to_jtaguart " "
-sleep 1
 
 send_to_jtaguart "sf probe 0x0 0x0 0x0"
 match_jtaguart_output "SF: Detected" 10
 
-echo "Flash size is $flash_size_hex"
+if $verbose; then
+    echo "Flash size is $flash_size_hex"
+fi
 #kria QSPI size is 0x400_0000, embplus OSPI size is 0x1000_0000
 zipfile_ddr_addr="0x80000" #this is set in download_data.tcl
 binfile_ddr_addr="0x80000" #this is set in download_data.tcl
@@ -465,7 +553,9 @@ verify_ddr_addr="0x20000000" #location to copy SPI contents to during verify/bla
 
 
 if $verify || $prog_spi; then
-    $XSDB -interactive "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin" | tr '\r' '\n'
+    echo "Downloading flash mage to DDR (step $step/$num_operations)"
+    step=$(( step + 1 ))
+    xsdb_cmd "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin"
 
     if [ "$format" == "gzip" ]; then
         binfile_ddr_addr=$unzipped_binfile_ddr_addr
@@ -492,18 +582,18 @@ fi
 
 
 if $prog_spi; then
-    echo
-    echo "SPI Erasing and programming...this could take up to 5 minutes"
-    echo
+    echo "SPI Erasing and programming...this could take up to 5 minutes (step $step/$num_operations)"
+    step=$(( step + 1 ))
+
     send_to_jtaguart "sf update $binfile_ddr_addr 0x0 $bin_size_hex"
-    print_progress "written" 10
-    echo
+    print_progress "term" "written" 10
     echo "SPI written successfully."
-    echo
 fi
 
 if $verify; then
     # read flash content to 0x2000_0000
+    echo "Verifying (step $step/$num_operations)"
+    step=$(( step + 1 ))
     send_to_jtaguart "sf read $verify_ddr_addr 0x0 $bin_size_hex"
     match_jtaguart_output "OK" 1000
     sleep 10
@@ -514,9 +604,10 @@ fi
 
 cleanup
 
-echo
-echo "Script completed"
-
+if $verbose; then
+    echo
+    echo "Script completed"
+fi
 
 exit 0
 
