@@ -14,7 +14,7 @@ This repository provides a utility to update AMD ACAP's (Adaptive Compute Accele
 
 ### On Embedded+ based platforms
 
-Current Embedded+ platforms have a Versal and a Ryzen device. Versal firmware update expects that Ryzen is already running Ubuntu, as the firmware update would be performed from Ryzen. Therefore, all the components required to either log onto Ryzen Ubuntu via keyboard+mouse+monitor, network access and ssh, is required and not listed below.
+Current Embedded+ platforms have a Versal and a Ryzen device. Versal firmware update expects that Ryzen is already running Ubuntu, as the firmware update would be performed from Ryzen. The Ryzen is the Linux host on Embedded+ platforms. Therefore, all the components required to either log onto Ryzen Ubuntu via keyboard+mouse+monitor, network access and ssh, is required and not listed below.
 
 On Embedded Plus platform, there are capabilities to set bootmode to JTAG and reset the board through FTDI GPIO and that is being leveraged by the script.
 
@@ -22,11 +22,11 @@ On Rhino platform, there isnt a way to set bootmode using FTDI GPIO. Therefore, 
 
 ### On Versal Evaluation platforms
 
-On Versal eval platforms such as VHK158, there's a system controller that has access to Versal. This utility can be run from the system controller to update the OSPI.
+On Versal eval platforms such as VHK158, there's a system controller that has access to Versal. System Controller will be the Linux host on these platform to run this utility to update Versal's OSPI.
 
 ### On Kria platforms
 
-Kria platforms only has a Versal device, thus a Linux host connected to
+Kria platforms only has a Versal device, thus an external Linux host connected to
 the Kria platform via USB cable is required.
 
 ### On all platforms
@@ -64,7 +64,9 @@ These are the steps to install HW_server if none of them are installed:
 
 Lastly, go to [Releases](https://github.com/Xilinx/embpf-bootfw-update-tool/releases), find the latest release (V2.0), download it's "Source code" and "bin.zip". Unzip them in your Linux host.  Find ```prog_spi.sh``` in the source code folder. Then place the bin/ folder from bin.zip in the same folder as ```prog_spi.sh```.
 
-*** Important! You must download and use the bin.zip file from release area for Kria and embedded plus platforms. Do not copy your own boot.bin files to the bin/ folder. Do not use the BOOT*.bin files in bin/ folder as an input to -i . They are special binary files created to boot u-boot with jtag uart instead of physical uart ***
+In the current code base - if the host Linux has network access to github.com - the bin.zip is automatically downloaded, and unzipped into the right directly. However, if there is network restrictions - then manual download method specified in previous paragraph is required.
+
+*** Important! You must download and use the bin.zip file from release area for Kria and embedded plus platforms. Do not copy your own boot.bin files to the bin/ folder. Do not use the BOOT*.bin files in bin/ folder as an input to -i . They are jtag boot binary files created to boot u-boot with jtag uart instead of physical uart ***
 
 Make ```prog_spi.sh``` executable:
 
@@ -79,13 +81,30 @@ Move <boot.bin> that you want to program into OSPI onto filesystem on Ryzen/host
 prog_spi.sh is used to program OSPI:
 
 ```
-Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
-    -i <file>      : File to write to OSPI/QSPI
+Default Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
+    -i <file>      : Bin file to write into OSPI/QSPI, can be a .bin or a gzip of the .bin file
     -d <board>     : Board type.  Supported values
                      embplus, rhino, kria_k26, kria_k24c,
                      kria_k24i, versal_eval
-    -b <boot_file> : Optional argument to override programming boot.bin
+    -b <boot_file> : Optional argument to override jtag boot.bin, for Versal only
+    -s <SOCK #>    : Optional argument to specify remote uart SOCK number
+    -p             : Optional argument program SPI, this is set by default except if -v or -b is present
+    -v             : verification of flash content, if -pv are both present, tool will program and verify. if only -v is set, tool will  verify content of SPI against -i  <file> without programming
+    -c             : check if flash is blank/erased
+    -V             : verbose logging
     -h             : help
+Example usage
+to program:
+     ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
+to program with explicit -p and in verbose mode:
+     ./prog_spi.sh -p -i -V <path_to_boot.bin> -d <board_type>
+to program and verify:
+     ./prog_spi.sh -pv -i <path_to_boot.bin> -d <board_type>
+to verify only:
+     ./prog_spi.sh -v -i <path_to_boot.bin> -d <board_type>
+to check if SPI is blank:
+     ./prog_spi.sh -c -d <board_type>
+
 ```
 
 execute this command to program OSPI:

@@ -7,11 +7,12 @@ source versal/boot_mode.tcl
 jtag_ready
 targets -set -nocase -filter {name =~ "Versal*"}
 switch_to_jtag
-puts "programming device to start u-boot"
+puts stderr "programming device with jtag boot files to start u-boot"
 device program [lindex $argv 0]
 plm set-log-level 0
-puts "device program, u-boot started, prepare to program flash to DDR"
+puts stderr "Jtag boot finished, u-boot should be started"
+# below line is required for print_progress
+puts "Jtag boot finished, u-boot should be started"
 con
-
 disconnect
 exit
