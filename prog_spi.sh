@@ -38,8 +38,14 @@ print_progress() {
   local pattern="$2"
   local timeout="$3"
 
+  if [ $COLUMNS -lt 87 ]; then
+      PROG_WIDTH=$((COLUMNS - 7))
+  else
+      PROG_WIDTH=80
+  fi
+
   if ! $verboase; then
-    percentBar 0 80 bar
+    percentBar 0 $PROG_WIDTH bar
     printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" 0
   fi
 
@@ -49,14 +55,17 @@ print_progress() {
         if [ $? -ne 0 ]; then
             echo "Error: Timed out after $timeout seconds - script failed"
             cleanup
-            exit 1
+            return 1
         fi
-        if [[ "$character" == $'\r' ]]; then
+        if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
+            echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
+            return 1
+        elif [[ "$character" == $'\r' ]]; then
             if $verbose; then
                 echo "received on UART: $buffer"
             elif [ "$(echo "$buffer" | grep -e "..%")" != "" ]; then
                 val=$(echo $buffer | sed -e 's/.* \(.*\)%.*/\1/')
-                percentBar $val 80 bar
+                percentBar $val $PROG_WIDTH bar
                 printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" $val
                 if [ $val -eq 100 ]; then
                     echo
@@ -71,11 +80,11 @@ print_progress() {
                     IFS= read -r -t "$timeout" line <&"${COPROC[0]}"
                     echo "received on UART: $buffer $line"
                 else
-                    percentBar 100 80 bar
+                    percentBar 100 $PROG_WIDTH bar
                     printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" 100
                     echo
                 fi
-                return
+                return 0
             fi
         fi
     done
@@ -85,19 +94,19 @@ print_progress() {
         
         if [ $? -ne 0 ]; then
             echo "Timed out after $timeout seconds - script failed"
-            exit 1
+            cleanup
+            return 1
         fi
 
-        if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
-            echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
-            exit 1
-        elif [ "$(echo "$line" | grep -e "..%")" != "" ]; then
+        if echo "$line" | grep -q "finished"; then
+                return 0
+        fi
+        if [ "$(echo "$line" | grep -e "..%")" != "" ]; then
             val=$(echo $line | sed -e 's/\(.*\)%.*/\1/')
-            percentBar $val 80 bar
+            percentBar $val $PROG_WIDTH bar
             printf '\r\e[44;38;5;25m%s\e[0m%6.2f%%' "$bar" $val
             if [ $val -eq 100 ]; then
-                echo
-                return 0
+                printf '\n'
             fi
         fi
 
@@ -173,7 +182,7 @@ xsdb_cmd () {
     if $verbose; then
         $XSDB -interactive $* | stdbuf -oL tr '\r' '\n'
     else
-        $XSDB -interactive $* | stdbuf -oL tr '\r' '\n' | print_progress "xsdb" "written" 1000
+        $XSDB -interactive $* | stdbuf -oL tr '\r' '\n' | print_progress "xsdb" "written" 1000 || exit 1
     fi
 }
 
@@ -225,11 +234,11 @@ detect_board() {
 
 usage () {
     echo "Default Usage: $0 -i <path_to_boot.bin> -d <board_type>"
-    echo "    -i <file>      : File to write to OSPI/QSPI, can be a .bin or a gzip of the .bin file"
+    echo "    -i <file>      : Bin file to write into OSPI/QSPI, can be a .bin or a gzip of the .bin file"
     echo "    -d <board>     : Board type.  Supported values"
     echo "                     embplus, rhino, kria_k26, kria_k24c,"
     echo "                     kria_k24i, versal_eval"
-    echo "    -b <boot_file> : Optional argument to override programming boot.bin"
+    echo "    -b <boot_file> : Optional argument to override jtag boot.bin, for Versal only"
     echo "    -s <SOCK #>    : Optional argument to specify remote uart SOCK number"
     echo "    -p             : Optional argument program SPI, this is set by default except if -v or -b is present"
     echo "    -v             : verification of flash content, if -pv are both present, tool will program and verify. if only -v is set, tool will  verify content of SPI against -i  <file> without programming"
@@ -239,8 +248,8 @@ usage () {
     echo "Example usage"
     echo "to program:"
     echo "     $0 -i <path_to_boot.bin> -d <board_type>"
-    echo "to program:"
-    echo "     $0 -p -i <path_to_boot.bin> -d <board_type>"
+    echo "to program with explicit -p and in verbose mode:"
+    echo "     $0 -p -i -V <path_to_boot.bin> -d <board_type>"
     echo "to program and verify:"
     echo "     $0 -pv -i <path_to_boot.bin> -d <board_type>"
     echo "to verify only:"
@@ -370,6 +379,7 @@ fi
 
 if ! $check_blank && ! $verify; then
     prog_spi=true
+    num_operations=$(( num_operations + 1 ))
     echo "Default to programming flash"
 fi
 
@@ -536,8 +546,9 @@ sleep 2  # Wait a moment for nc to initialize
 
 
 send_to_jtaguart " " 
+sleep .5
 send_to_jtaguart " "
-send_to_jtaguart " "
+sleep .5
 
 send_to_jtaguart "sf probe 0x0 0x0 0x0"
 match_jtaguart_output "SF: Detected" 10
@@ -586,7 +597,7 @@ if $prog_spi; then
     step=$(( step + 1 ))
 
     send_to_jtaguart "sf update $binfile_ddr_addr 0x0 $bin_size_hex"
-    print_progress "term" "written" 10
+    print_progress "term" "written" 10 || exit 1
     echo "SPI written successfully."
 fi
 

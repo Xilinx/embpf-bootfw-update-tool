@@ -58,5 +58,9 @@ after 2000
 dow -force "bin/bl31.elf"
 after 2000
 con
-puts stderr "u-boot should be started"
+puts stderr "Jtag boot finished, u-boot should be started"
+# below line is required for print_progress
+puts "Jtag boot finished, u-boot should be started"
+disconnect
+exit
 
