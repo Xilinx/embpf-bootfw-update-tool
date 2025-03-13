@@ -347,7 +347,7 @@ while getopts "d:i:b:s:pvhcV" arg; do
             fi
             ;;
         s)
-            remote_uart="${OPTARG}"
+            remote_uart=${OPTARG}
             ;;
         v)
             verify=true
@@ -430,7 +430,7 @@ if ! $check_blank; then
     else
         bin_size=$(stat -c "%s" "$path_to_boot_bin")
     fi
-    bin_size_hex=$(printf "%08x" $bin_size)
+    bin_size_hex=$(printf "0x%08x" $bin_size)
     echo "Size of bin file to program is 0x$bin_size_hex"
 fi
 
@@ -559,8 +559,8 @@ fi
 #kria QSPI size is 0x400_0000, embplus OSPI size is 0x1000_0000
 zipfile_ddr_addr="0x80000" #this is set in download_data.tcl
 binfile_ddr_addr="0x80000" #this is set in download_data.tcl
-unzipped_binfile_ddr_addr="0x10000000" #if -i has a gzip file, location to unzip to - should be minimumly size of flash
-verify_ddr_addr="0x20000000" #location to copy SPI contents to during verify/blank check. should minimumly be flash size *2
+unzipped_binfile_ddr_addr="0x20000000" #if -i has a gzip file, location to unzip to - should be minimumly size of flash
+verify_ddr_addr="0x40000000" #location to copy SPI contents to during verify/blank check. should minimumly be flash size *2
 
 
 if $verify || $prog_spi; then
@@ -607,7 +607,12 @@ if $verify; then
     step=$(( step + 1 ))
     send_to_jtaguart "sf read $verify_ddr_addr 0x0 $bin_size_hex"
     match_jtaguart_output "OK" 1000
-    sleep 10
+
+    # hack to flush the cache so compare works
+    end_addr=$(( verify_ddr_addr + bin_size_hex - 16 ))
+    send_to_jtaguart "md $end_addr 4"
+    match_jtaguart_output "$end_addr" 1000
+
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $bin_size_hex"
     match_jtaguart_output "were the same" 1000
     echo "Verification successful"
