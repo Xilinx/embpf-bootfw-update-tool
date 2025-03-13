@@ -33,16 +33,56 @@ send_to_jtaguart() {
   fi
 }
 
+read_line() {
+    local iosource="$1"
+    local timeout="$2"
+    local line=""
+    local char
+    local input_fd
+
+    if [ "$iosource" == "term" ]; then
+        while IFS= read -r -t "$timeout" -n 1 character <&"${COPROC[0]}"; do
+            # Stop reading if newline (\n) or carriage return (\r) is found
+            if [[ "$character" == $'\r' || "$character" == $'\n' ]]; then
+                echo "$line"
+                return 0
+            fi
+            line+="$character"
+        done
+        if [[ -z "$line" ]]; then
+            echo "Error: Timed out after $timeout seconds - script failed" >&2
+            return 1
+        fi
+        echo "$line"
+        return 0
+    elif [ "$iosource" == "xsdb" ]; then
+        IFS= read -r -t "$timeout" line
+        if [ $? -ne 0 ]; then
+            echo "Timed out after $timeout seconds - script failed"
+            return 1
+        fi
+        echo "$line"
+        return 0
+    else
+        echo "Error: Unknown iosource '$iosource'" >&2
+        return 1
+    fi
+
+
+}
+
 #Blue progress bar
 #BARSTR='\r\e[44;38;5;25m%s\e[0m%4.0f%%'
 
 #Black and White progress bar
 BARSTR='\r%s%4.0f%%'
 
-print_progress() {
+match_output_print_prog() {
   local iosource="$1"
-  local pattern="$2"
+  local match_pattern="$2"
   local timeout="$3"
+  local line
+
 
   if [ $COLUMNS -lt 85 ]; then
       PROG_WIDTH=$((COLUMNS - 5))
@@ -50,129 +90,65 @@ print_progress() {
       PROG_WIDTH=80
   fi
 
-  if ! $verboase; then
-    percentBar 0 $PROG_WIDTH bar
-    printf $BARSTR "$bar" 0
-  fi
+  print_progress=false
+  while true; do
+    if ! line=$(read_line "$iosource" "$timeout"); then
+        echo "Error: Failed to read a line from $iosource, exiting..." >&2
+        return 1
+    fi
 
-  if [ "$iosource" == "term" ]; then 
-    while true; do
-        IFS= read -r -t "$timeout" -n 1 character <&"${COPROC[0]}"
-        if [ $? -ne 0 ]; then
-            echo "Error: Timed out after $timeout seconds - script failed"
-            cleanup
-            return 1
-        fi
-        if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
-            echo "Attempted to modify a protected sector - the flash is locked and cannot be modified."
-            return 1
-        elif [[ "$character" == $'\r' ]]; then
-            if $verbose; then
-                echo "received on UART: $buffer"
-            elif [ "$(echo "$buffer" | grep -e "..%")" != "" ]; then
-                val=$(echo $buffer | sed -e 's/.* \(.*\)%.*/\1/')
-                percentBar $val $PROG_WIDTH bar
-                printf $BARSTR "$bar" $val
-                if [ $val -eq 100 ]; then
-                    echo
-                    return 0
-                fi
-            fi
-            buffer=""
-        else
-            buffer+="$character"
-            if [[ "$buffer" == *"$pattern"* ]]; then
-                if $verbose; then
-                    IFS= read -r -t "$timeout" line <&"${COPROC[0]}"
-                    echo "received on UART: $buffer $line"
-                else
-                    percentBar 100 $PROG_WIDTH bar
-                    printf $BARSTR "$bar" 100
-                    echo
-                fi
-                return 0
-            fi
-        fi
-    done
-  elif [ "$iosource" == "xsdb" ]; then 
-    while true; do
-        read -r -t "$timeout" line 
-        
-        if [ $? -ne 0 ]; then
-            echo "Timed out after $timeout seconds - script failed"
-            cleanup
-            return 1
-        fi
-
-        if echo "$line" | grep -q "finished"; then
-                return 0
-        fi
-        if [ "$(echo "$line" | grep -e "..%")" != "" ]; then
-            val=$(echo $line | sed -e 's/\(.*\)%.*/\1/')
+    if $verbose; then
+        echo "received on $iosource:  $line"
+    else
+        if echo "$line" | grep -q "%" ; then
+            print_progress=true
+            val=$(echo $line | awk '{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+%$/) print substr($i, 1, length($i)-1)}')
             percentBar $val $PROG_WIDTH bar
             printf $BARSTR "$bar" $val
             if [ $val -eq 100 ]; then
                 printf '\n'
+                print_progress=false
             fi
+
         fi
-
-    done
-  fi
-}
-
-
-match_jtaguart_output() {
-  local pattern="$1"
-  local timeout="$2"
-
-  local pause=0.1
-
-  while true; do
-    
-    IFS= read -r -t "$timeout" line <&"${COPROC[0]}"
-    
-    if [ $? -ne 0 ]; then
-        echo "Error: Timed out after $timeout seconds - script failed"
-        cleanup
-        exit 1
     fi
 
-    if $verbose; then
-        echo "received on jtag_uart:  $line"
-    fi
     if echo "$line" | grep -q "SF: Detected" ; then
         flash_size_print=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if ($i=="total") print $(i+1)}')
         flash_size_hex=$(printf "0x%X\n" $(( $flash_size_print * 1024 * 1024 )))
     fi
-
     if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
-        echo "Error: The flash is locked and cannot be modified - script failed"
-        cleanup
-	    exit 1
+        echo "Error: Attempted to modify a protected sector - the flash is locked and cannot be modified."
+        return 1
     elif echo "$line" | grep -q "!= byte at"; then
         if $check_blank; then
             echo "Flash is not blank: $line"
             cleanup
-            exit 1
+            return 1
         else
             echo "Error: Data mismatch, verification failed: $line"
             cleanup
-            exit 1
+            return 1
         fi
-    elif echo "$line" | grep -q "$pattern"; then
+    elif echo "$line" | grep -q "$match_pattern"; then
         if $verbose; then
-            echo "Match found: $line"
+            echo "Match found on $iosource: $line"
+        elif $print_progress; then # incase 100% doesnt print, use match to know its 100%
+            percentBar 100 $PROG_WIDTH bar
+            printf $BARSTR "$bar" 100
+            printf '\n'
         fi
-        return 0 
+        return 0
     fi
   done
-
   echo "ERROR: should never see this line"
   cleanup
-  exit 1  # No match found
+  return 1  # No match found
 }
 
-percentBar ()  { 
+
+
+percentBar ()  {
     local prct totlen=$((8*$2)) lastchar barstring blankstring;
     printf -v prct %.2f "$1"
     ((prct=10#${prct/.}*totlen/10000, prct%8)) &&
@@ -188,7 +164,8 @@ xsdb_cmd () {
     if $verbose; then
         $XSDB -interactive $* | stdbuf -oL tr '\r' '\n'
     else
-        $XSDB -interactive $* | stdbuf -oL tr '\r' '\n' | print_progress "xsdb" "written" 1000 || exit 1
+        #$XSDB -interactive $* | stdbuf -oL tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 1000 "100%" || exit 1
+        $XSDB -interactive $* | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 1000 || exit 1
     fi
 }
 
@@ -200,7 +177,7 @@ fi
 if command -v xsdb >/dev/null 2>&1; then
     #echo "xsdb is in PATH: $(command -v xsdb)"
     XSDB=$(which xsdb)
-else 
+else
     # Look for xsdb in the system and filter paths containing "bin/xsdb"
     XSDB_PATH=$(find /usr /opt /tools /home -iname xsdb 2>/dev/null | grep "/bin/xsdb" | head -n 1)
     XSDB=$XSDB_PATH
@@ -288,7 +265,7 @@ while getopts "d:i:b:s:pvhcV" arg; do
     case "$arg" in
         p)
             num_operations=$(( num_operations + 1 ))
-            prog_spi=true 
+            prog_spi=true
             ;;
         d)
             case ${OPTARG} in
@@ -512,7 +489,7 @@ else
     rt=$(( rt + 1 ))
     sleep 1
     done
-  
+
     # Check if the socket was created successfully
     if [[ ! "$SOCK" =~ ^[0-9]+$ ]]; then
     echo "Error: Script failed to extract a valid JTAG UART socket number."
@@ -551,13 +528,13 @@ xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file"
 sleep 2  # Wait a moment for nc to initialize
 
 
-send_to_jtaguart " " 
+send_to_jtaguart " "
 sleep .5
 send_to_jtaguart " "
 sleep .5
 
 send_to_jtaguart "sf probe 0x0 0x0 0x0"
-match_jtaguart_output "SF: Detected" 10
+match_output_print_prog "term" "SF: Detected" 10 || exit 1
 
 if $verbose; then
     echo "Flash size is $flash_size_hex"
@@ -570,14 +547,14 @@ verify_ddr_addr="0x40000000" #location to copy SPI contents to during verify/bla
 
 
 if $verify || $prog_spi; then
-    echo "Downloading flash mage to DDR (step $step/$num_operations)"
+    echo "Downloading flash image to DDR (step $step/$num_operations)"
     step=$(( step + 1 ))
     xsdb_cmd "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin"
 
     if [ "$format" == "gzip" ]; then
         binfile_ddr_addr=$unzipped_binfile_ddr_addr
         send_to_jtaguart "unzip $zipfile_ddr_addr $binfile_ddr_addr"
-        match_jtaguart_output "Uncompressed size:" 1000
+        match_output_print_prog "term" "Uncompressed size:" 1000 || exit 1
     fi
 fi
 
@@ -588,12 +565,12 @@ if $check_blank; then
     echo "check to see if flash is blank"
     echo
     send_to_jtaguart "sf read $verify_ddr_addr 0 $flash_size_hex"
-    match_jtaguart_output "OK" 1000
+    match_output_print_prog "term" "OK" 1000 || exit 1
     sleep 10
     send_to_jtaguart "mw.b $binfile_ddr_addr 0xff $flash_size_hex"
     sleep 1
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $flash_size_hex"
-    match_jtaguart_output "were the same" 1000
+    match_output_print_prog "term" "were the same" 1000 || exit 1
     echo "Blank check successful - flash is blank/erased"
 fi
 
@@ -603,24 +580,21 @@ if $prog_spi; then
     step=$(( step + 1 ))
 
     send_to_jtaguart "sf update $binfile_ddr_addr 0x0 $bin_size_hex"
-    print_progress "term" "written" 10 || exit 1
+    match_output_print_prog "term" "written" 20  || exit 1
     echo "SPI written successfully."
 fi
 
 if $verify; then
-    # read flash content to 0x2000_0000
     echo "Verifying (step $step/$num_operations)"
     step=$(( step + 1 ))
     send_to_jtaguart "sf read $verify_ddr_addr 0x0 $bin_size_hex"
-    match_jtaguart_output "OK" 1000
-
-    # hack to flush the cache so compare works
-    end_addr=$(( verify_ddr_addr + bin_size_hex - 16 ))
-    send_to_jtaguart "md $end_addr 4"
-    match_jtaguart_output "$end_addr" 1000
-
+    match_output_print_prog "term" "OK" 1000 || exit 1
+    # Wait for OSPI DMA to finish
+    send_to_jtaguart "mw 10000 00002000 1"
+    send_to_jtaguart 'sf probe; while itest $? != 0; do sf probe; sleep 1; done; echo DONE'
+    match_output_print_prog "term" "^DONE" 1000 || exit 1
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $bin_size_hex"
-    match_jtaguart_output "were the same" 1000
+    match_output_print_prog "term" "were the same" 1000 || exit 1
     echo "Verification successful"
 fi
 

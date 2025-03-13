@@ -7,8 +7,10 @@ source zynqmp/jtag_ready.tcl
 jtag_ready
 targets -set -nocase -filter {name =~ "PSU"}
 after 2000
-puts stderr "downloading flash content to DDR"
+puts stderr "INFO: downloading flash content to DDR"
 dow -force -data [lindex $argv 0]  0x80000
-puts "content download to DDR finished"
+after 2000
+puts "INFO: content download to DDR finished"
+
 disconnect
 exit
