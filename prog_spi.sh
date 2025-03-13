@@ -614,10 +614,10 @@ if $verify; then
     send_to_jtaguart "sf read $verify_ddr_addr 0x0 $bin_size_hex"
     match_jtaguart_output "OK" 1000
 
-    # hack to flush the cache so compare works
-    end_addr=$(( verify_ddr_addr + bin_size_hex - 16 ))
-    send_to_jtaguart "md $end_addr 4"
-    match_jtaguart_output "$end_addr" 1000
+    # Wait for OSPI DMA to finish
+    send_to_jtaguart "mw 10000 00002000 1"
+    send_to_jtaguart 'cmp.l f1011808 10000 1; while itest $? != 0; do cmp.l f1011808 10000 1; sleep 1; done; echo DONE'
+    match_jtaguart_output "^DONE" 1000
 
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $bin_size_hex"
     match_jtaguart_output "were the same" 1000
