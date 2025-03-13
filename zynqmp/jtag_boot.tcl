@@ -6,22 +6,11 @@
 #
 ################################################################################
 
-puts stderr "Starting the script..."
+puts "Starting the script..."
 source zynqmp/jtag_ready.tcl
 jtag_ready
 
-
-# required for jtag uart - setting jtag mode moved to uart.tcl
-#targets -set -nocase -filter {name =~ "PSU"}
-## update multiboot to ZERO
-#mwr 0xffca0010 0x0
-## change boot mode to JTAG
-#mwr 0xff5e0200 0x0100
-## reset
-#rst -system
-#after 2000
-#targets -set -nocase -filter {name =~ "PSU"}
-#mwr  0xffca0038 0x1ff
+# setting jtag mode moved to uart.tcl
 
 targets -set -nocase -filter {name =~ "MicroBlaze PMU"}
 catch {stop}; after 1000
@@ -41,14 +30,13 @@ con
 after 4000; stop; catch {stop};
 
 targets -set -nocase -filter {name =~ "*A53*#0"}
-puts stderr "INFO: Loading image: [lindex $argv 1] at 0x00100000"
-#system.dtb
+puts stderr "INFO: Downloading DTB: [lindex $argv 1] at 0x00100000"
 dow -data  "[lindex $argv 1]" 0x00100000
 after 2000
 
 targets -set -nocase -filter {name =~ "*A53*#0"}
-puts stderr "INFO: Downloading u-boot ELF file to the target."
 after 2000
+puts stderr "INFO: Downloading u-boot ELF file to the target."
 dow -force "bin/u-boot.elf"
 after 2000
 
@@ -58,9 +46,9 @@ after 2000
 dow -force "bin/bl31.elf"
 after 2000
 con
-puts stderr "Jtag boot finished, u-boot should be started"
-# below line is required for print_progress
-puts "Jtag boot finished, u-boot should be started"
+
+# below line with "finished" is required for print_progress
+puts "INFO: Jtag boot finished, u-boot should be started"
 disconnect
 exit
 
