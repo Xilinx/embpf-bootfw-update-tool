@@ -122,7 +122,7 @@ match_output_print_prog() {
     if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
         echo "Error: Attempted to modify a protected sector - the flash is locked and cannot be modified."
         return 1
-    elif echo "$line" | grep -q "!= byte at"; then
+    elif echo "$line" | grep -q "!= byte at" && echo "$line" | grep -vq "$spi_dma_busy_reg" ; then
         if $check_blank; then
             echo "Flash is not blank: $line"
             cleanup
@@ -163,11 +163,7 @@ percentBar ()  {
 }
 
 xsdb_cmd () {
-    #if $verbose; then
-    #    $XSDB -interactive $* | stdbuf -oL tr '\r' '\n'
-    #else
-        $XSDB -interactive $* | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 300 || exit 1
-    #fi
+        $XSDB -interactive $* | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 60 || exit 1
 }
 
 if [ -f /etc/profile.d/xsdb-variables.sh ]; then
@@ -230,9 +226,9 @@ usage () {
     echo "    -e             : erase flash"
     echo "    -V             : verbose logging"
     echo "    -h             : help"
-    echo "Example usage"
-    echo "to program:"
-    echo "     $0 -i <path_to_boot.bin> -d <board_type>"
+    echo "Example usages:"
+    echo "to program in verbose mode:"
+    echo "     $0 -i <path_to_boot.bin> -d <board_type> -V"
     echo "to program with explicit -p and in verbose mode:"
     echo "     $0 -p -i -V <path_to_boot.bin> -d <board_type>"
     echo "to program and verify:"
@@ -243,6 +239,8 @@ usage () {
     echo "     $0 -c -d <board_type>"
     echo "to erase:"
     echo "     $0 -e -d <board_type>"
+    echo "to erase and check that SPI is blank:"
+    echo "     $0 -ec -d <board_type>"
     exit 1
 }
 
@@ -264,6 +262,7 @@ remote_uart=0
 SCRIPT_PATH=$(dirname $0)
 verbose=false
 num_operations=2
+spi_dma_busy_reg=""
 
 # Parse arguments
 while getopts "d:i:b:s:pvhceV" arg; do
@@ -278,25 +277,30 @@ while getopts "d:i:b:s:pvhceV" arg; do
                     binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_embplus_jtaguart.bin}
                     device_type=versal
                     embplus_reset=true
+                    spi_dma_busy_reg="f1011808"
                     ;;
                 rhino)
                     binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_rhino_jtaguart.bin}
                     device_type=versal
+                    spi_dma_busy_reg="f1011808"
                     ;;
                 kria_k26)
                     binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k26.elf}
                     dtb_file=bin/system_k26_jtag_uart.dtb
                     device_type=zynqmp
+                    spi_dma_busy_reg="FF0F0808"
                     ;;
                 kria_k24c)
                     binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k24c.elf}
                     dtb_file="${SCRIPT_PATH}"/bin/system_k24c_jtag_uart.dtb
                     device_type=zynqmp
+                    spi_dma_busy_reg="FF0F0808"
                     ;;
                 kria_k24i)
                     binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k24i.elf}
                     dtb_file="${SCRIPT_PATH}"/bin/system_k24i_jtag_uart.dtb
                     device_type=zynqmp
+                    spi_dma_busy_reg="FF0F0808"
                     ;;
                 versal_eval)
                     BOARD=$(detect_board)
@@ -310,6 +314,7 @@ while getopts "d:i:b:s:pvhceV" arg; do
                     device_type=versal
                     jtag_mux=true
                     scapp_support=true
+                    spi_dma_busy_reg="f1011808"
                     ;;
                 *)
                     echo
@@ -386,8 +391,8 @@ if $check_blank || $erase_spi; then
         echo "-p and -c/e cannot be set at the same time"
         usage
     fi
-    if $b_flag_set || $i_flag_set; then
-        echo "-c and -e option does not require any input files, please check and try again"
+    if $i_flag_set; then
+        echo "-c and -e option does not require -i input file, please check and try again"
         usage
     fi
 else
@@ -565,7 +570,7 @@ if $verify || $prog_spi; then
     if [ "$format" == "gzip" ]; then
         binfile_ddr_addr=$unzipped_binfile_ddr_addr
         send_to_jtaguart "unzip $zipfile_ddr_addr $binfile_ddr_addr"
-        match_output_print_prog "term" "Uncompressed size:" 300 || exit 1
+        match_output_print_prog "term" "Uncompressed size:" 120 || exit 1
     fi
 fi
 
@@ -581,12 +586,15 @@ if $check_blank; then
     echo "Check to see if flash is blank (step $step/$num_operations)"
     step=$(( step + 1 ))
     send_to_jtaguart "sf read $verify_ddr_addr 0 $flash_size_hex"
-    match_output_print_prog "term" "OK" 300 || exit 1
-    sleep 10
+    match_output_print_prog "term" "OK" 120 || exit 1
     send_to_jtaguart "mw.b $binfile_ddr_addr 0xff $flash_size_hex"
-    sleep 1
+    sleep 10 # wait for mw to finish 
+    # Wait for SPI DMA to finish
+    send_to_jtaguart "mw 10000 00 1"
+    send_to_jtaguart "cmp.b $spi_dma_busy_reg 10000 1; while itest \$? != 0; do sleep 1; cmp.b $spi_dma_busy_reg 10000 1; done; echo DONE"
+    match_output_print_prog "term" "^DONE" 120 || exit 1
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $flash_size_hex"
-    match_output_print_prog "term" "were the same" 300 || exit 1
+    match_output_print_prog "term" "were the same" 120 || exit 1
     echo "Blank check successful - flash is blank/erased"
 fi
 
@@ -604,13 +612,13 @@ if $verify; then
     echo "Verifying (step $step/$num_operations)"
     step=$(( step + 1 ))
     send_to_jtaguart "sf read $verify_ddr_addr 0x0 $bin_size_hex"
-    match_output_print_prog "term" "OK" 300 || exit 1
-    # Wait for OSPI DMA to finish
-    send_to_jtaguart "mw 10000 00002000 1"
-    send_to_jtaguart 'cmp.l f1011808 10000 1; while itest $? != 0; do sleep 1; cmp.l f1011808 10000 1; done; echo DONE'
-    match_output_print_prog "term" "^DONE" 300 || exit 1
+    match_output_print_prog "term" "OK" 120 || exit 1
+    # Wait for SPI DMA to finish
+    send_to_jtaguart "mw 10000 00 1"
+    send_to_jtaguart "cmp.b $spi_dma_busy_reg 10000 1; while itest \$? != 0; do sleep 1; cmp.b $spi_dma_busy_reg 10000 1; done; echo DONE"
+    match_output_print_prog "term" "^DONE" 120 || exit 1
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $bin_size_hex"
-    match_output_print_prog "term" "were the same" 300 || exit 1
+    match_output_print_prog "term" "were the same" 120 || exit 1
     echo "Verification successful"
 fi
 
