@@ -161,12 +161,11 @@ percentBar ()  {
 }
 
 xsdb_cmd () {
-    if $verbose; then
-        $XSDB -interactive $* | stdbuf -oL tr '\r' '\n'
-    else
-        #$XSDB -interactive $* | stdbuf -oL tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 1000 "100%" || exit 1
-        $XSDB -interactive $* | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 1000 || exit 1
-    fi
+    #if $verbose; then
+    #    $XSDB -interactive $* | stdbuf -oL tr '\r' '\n'
+    #else
+        $XSDB -interactive $* | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 300 || exit 1
+    #fi
 }
 
 if [ -f /etc/profile.d/xsdb-variables.sh ]; then
@@ -606,9 +605,8 @@ if $verify; then
     match_output_print_prog "term" "OK" 300 || exit 1
     # Wait for OSPI DMA to finish
     send_to_jtaguart "mw 10000 00002000 1"
-    send_to_jtaguart 'sf probe; while itest $? -ne 0; do sleep 1; sf probe; done; echo DONE;'
-    #send_to_jtaguart 'cmp.l f1011808 10000 1; while itest $? != 0; do sleep 1; cmp.l f1011808 10000 1; done; echo DONE'
-    match_output_print_prog "term" "Detected" 300 || exit 1
+    send_to_jtaguart 'cmp.l f1011808 10000 1; while itest $? != 0; do sleep 1; cmp.l f1011808 10000 1; done; echo DONE'
+    match_output_print_prog "term" "^DONE" 300 || exit 1
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $bin_size_hex"
     match_output_print_prog "term" "were the same" 300 || exit 1
     echo "Verification successful"
