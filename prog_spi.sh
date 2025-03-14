@@ -58,7 +58,7 @@ read_line() {
     elif [ "$iosource" == "xsdb" ]; then
         IFS= read -r -t "$timeout" line
         if [ $? -ne 0 ]; then
-            echo "Timed out after $timeout seconds - script failed"
+            echo "Timed out after $timeout seconds - script failed" >&2
             return 1
         fi
         echo "$line"
@@ -226,6 +226,7 @@ usage () {
     echo "    -p             : Optional argument program SPI, this is set by default except if -v or -b is present"
     echo "    -v             : verification of flash content, if -pv are both present, tool will program and verify. if only -v is set, tool will  verify content of SPI against -i  <file> without programming"
     echo "    -c             : check if flash is blank/erased"
+    echo "    -e             : erase flash"
     echo "    -V             : verbose logging"
     echo "    -h             : help"
     echo "Example usage"
@@ -239,6 +240,8 @@ usage () {
     echo "     $0 -v -i <path_to_boot.bin> -d <board_type>"
     echo "to check if SPI is blank:"
     echo "     $0 -c -d <board_type>"
+    echo "to erase:"
+    echo "     $0 -e -d <board_type>"
     exit 1
 }
 
@@ -253,6 +256,7 @@ scapp_support=false
 verify=false
 prog_spi=false
 check_blank=false
+erase_spi=false
 b_flag_set=false
 i_flag_set=false
 remote_uart=0
@@ -261,7 +265,7 @@ verbose=false
 num_operations=2
 
 # Parse arguments
-while getopts "d:i:b:s:pvhcV" arg; do
+while getopts "d:i:b:s:pvhceV" arg; do
     case "$arg" in
         p)
             num_operations=$(( num_operations + 1 ))
@@ -338,13 +342,15 @@ while getopts "d:i:b:s:pvhcV" arg; do
             ;;
         c)
             check_blank=true
-            num_operations=$(( num_operations + 1 ))
             ;;
         h)
             usage
             ;;
         V)
             verbose=true
+            ;;
+        e)
+            erase_spi=true
             ;;
         *)
             echo "Unknown argument $OPTARG"
@@ -360,23 +366,27 @@ if [ -z "$device_type" ]; then
 fi
 
 
-if ! $check_blank && ! $verify; then
+if ! $check_blank && ! $verify && ! $erase_spi; then
     prog_spi=true
     num_operations=$(( num_operations + 1 ))
     echo "Default to programming flash"
 fi
 
-if $check_blank; then
+if $check_blank && $erase_spi; then
+    num_operations=$(( num_operations + 1 ))
+fi
+
+if $check_blank || $erase_spi; then
     if $verify; then
-        echo "-v and -c cannot be set at the same time"
+        echo "-v and -c/e cannot be set at the same time"
         usage
     fi
     if $prog_spi; then
-        echo "-p and -c cannot be set at the same time"
+        echo "-p and -c/e cannot be set at the same time"
         usage
     fi
     if $b_flag_set || $i_flag_set; then
-        echo "-c option does not require any input files, please check and try again"
+        echo "-c and -e option does not require any input files, please check and try again"
         usage
     fi
 else
@@ -395,7 +405,7 @@ if [ $UID -ne 0 ]; then
     exit 1
 fi
 
-if ! $check_blank; then
+if ! $check_blank && ! $erase_spi; then
     # check -i for symbolic link
     if [ -L "$path_to_boot_bin" ]; then
         actual_target=$(readlink -f "$path_to_boot_bin")
@@ -554,23 +564,28 @@ if $verify || $prog_spi; then
     if [ "$format" == "gzip" ]; then
         binfile_ddr_addr=$unzipped_binfile_ddr_addr
         send_to_jtaguart "unzip $zipfile_ddr_addr $binfile_ddr_addr"
-        match_output_print_prog "term" "Uncompressed size:" 1000 || exit 1
+        match_output_print_prog "term" "Uncompressed size:" 300 || exit 1
     fi
 fi
 
-
+if $erase_spi; then
+    echo "Erase Flash (step $step/$num_operations)"
+    step=$(( step + 1 ))
+    send_to_jtaguart "sf erase 0 $flash_size_hex"
+    match_output_print_prog "term" "OK" 120 || exit 1
+    echo "Erase successful - flash is now erased"
+fi
 
 if $check_blank; then
-    echo
-    echo "check to see if flash is blank"
-    echo
+    echo "Check to see if flash is blank (step $step/$num_operations)"
+    step=$(( step + 1 ))
     send_to_jtaguart "sf read $verify_ddr_addr 0 $flash_size_hex"
-    match_output_print_prog "term" "OK" 1000 || exit 1
+    match_output_print_prog "term" "OK" 300 || exit 1
     sleep 10
     send_to_jtaguart "mw.b $binfile_ddr_addr 0xff $flash_size_hex"
     sleep 1
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $flash_size_hex"
-    match_output_print_prog "term" "were the same" 1000 || exit 1
+    match_output_print_prog "term" "were the same" 300 || exit 1
     echo "Blank check successful - flash is blank/erased"
 fi
 
@@ -588,13 +603,14 @@ if $verify; then
     echo "Verifying (step $step/$num_operations)"
     step=$(( step + 1 ))
     send_to_jtaguart "sf read $verify_ddr_addr 0x0 $bin_size_hex"
-    match_output_print_prog "term" "OK" 1000 || exit 1
+    match_output_print_prog "term" "OK" 300 || exit 1
     # Wait for OSPI DMA to finish
     send_to_jtaguart "mw 10000 00002000 1"
-    send_to_jtaguart 'sf probe; while itest $? != 0; do sf probe; sleep 1; done; echo DONE'
-    match_output_print_prog "term" "^DONE" 1000 || exit 1
+    send_to_jtaguart 'sf probe; while itest $? -ne 0; do sleep 1; sf probe; done; echo DONE;'
+    #send_to_jtaguart 'cmp.l f1011808 10000 1; while itest $? != 0; do sleep 1; cmp.l f1011808 10000 1; done; echo DONE'
+    match_output_print_prog "term" "Detected" 300 || exit 1
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $bin_size_hex"
-    match_output_print_prog "term" "were the same" 1000 || exit 1
+    match_output_print_prog "term" "were the same" 300 || exit 1
     echo "Verification successful"
 fi
 
