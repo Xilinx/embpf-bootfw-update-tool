@@ -84,7 +84,9 @@ match_output_print_prog() {
   local line
 
 
-  if [ $COLUMNS -lt 85 ]; then
+  if [ -z $COLUMNS ]; then
+      PROG_WIDTH=80
+  elif [ $COLUMNS -lt 85 ]; then
       PROG_WIDTH=$((COLUMNS - 5))
   else
       PROG_WIDTH=80
