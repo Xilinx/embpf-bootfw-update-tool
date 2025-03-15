@@ -10,13 +10,16 @@
 #**********************************************************************
 
 cleanup(){
-    kill "${COPROC_PID}"
+    kill "${COPROC_PID}" 2>/dev/null
     exec {COPROC[0]}>&-
     exec {COPROC[1]}>&-
     if [[ ! -z "${XSDB_PID}" ]]; then
-        kill "${XSDB_PID}"
+        kill "${XSDB_PID}" 2>/dev/null
     fi
+
     ps ax | grep xsdb | grep uart.tcl | awk '{print $1}' | xargs --no-run-if-empty kill -9 2>/dev/null
+
+    ps ax | grep xsdb | awk '{print $1}' | xargs --no-run-if-empty kill -9 2>/dev/null
 
     if $jtag_mux; then
         gpioget $(gpiofind SYSCTLR_JTAG_S0) >/dev/null
@@ -51,6 +54,7 @@ read_line() {
         done
         if [[ -z "$line" ]]; then
             echo "Error: Timed out after $timeout seconds - script failed" >&2
+            cleanup
             return 1
         fi
         echo "$line"
@@ -59,12 +63,14 @@ read_line() {
         IFS= read -r -t "$timeout" line
         if [ $? -ne 0 ]; then
             echo "Timed out after $timeout seconds - script failed" >&2
+            cleanup
             return 1
         fi
         echo "$line"
         return 0
     else
         echo "Error: Unknown iosource '$iosource'" >&2
+        cleanup
         return 1
     fi
 
@@ -96,6 +102,7 @@ match_output_print_prog() {
   while true; do
     if ! line=$(read_line "$iosource" "$timeout"); then
         echo "Error: Failed to read a line from $iosource, exiting..." >&2
+        cleanup
         return 1
     fi
 
@@ -121,10 +128,11 @@ match_output_print_prog() {
     fi
     if  echo "$line" | grep -q "Attempted to modify a protected sector";  then
         echo "Error: Attempted to modify a protected sector - the flash is locked and cannot be modified."
+        cleanup
         return 1
     elif echo "$line" | grep -q "!= byte at" && echo "$line" | grep -vq "$spi_dma_busy_reg" ; then
         if $check_blank; then
-            echo "Flash is not blank: $line"
+            echo "Error: Flash is not blank: $line, blank check failed"
             cleanup
             return 1
         else
@@ -163,7 +171,7 @@ percentBar ()  {
 }
 
 xsdb_cmd () {
-        $XSDB -interactive $* | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 60 || exit 1
+    $XSDB -interactive $* | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 60 || exit 1
 }
 
 if [ -f /etc/profile.d/xsdb-variables.sh ]; then
@@ -543,11 +551,13 @@ xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file"
 
 sleep 2  # Wait a moment for nc to initialize
 
-
+# have to "flush" the uart or first command wont send correctly to u-boot on some platforms
 send_to_jtaguart " "
-sleep .5
+sleep 1
 send_to_jtaguart " "
-sleep .5
+sleep 1
+send_to_jtaguart " "
+sleep 1
 
 send_to_jtaguart "sf probe 0x0 0x0 0x0"
 match_output_print_prog "term" "SF: Detected" 10 || exit 1

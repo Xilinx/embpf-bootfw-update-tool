@@ -91,11 +91,12 @@ Default Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
     -p             : Optional argument program SPI, this is set by default except if -v or -b is present
     -v             : verification of flash content, if -pv are both present, tool will program and verify. if only -v is set, tool will  verify content of SPI against -i  <file> without programming
     -c             : check if flash is blank/erased
+    -e             : erase flash
     -V             : verbose logging
     -h             : help
-Example usage
-to program:
-     ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
+Example usages:
+to program in verbose mode:
+     ./prog_spi.sh -i <path_to_boot.bin> -d <board_type> -V
 to program with explicit -p and in verbose mode:
      ./prog_spi.sh -p -i -V <path_to_boot.bin> -d <board_type>
 to program and verify:
@@ -104,7 +105,10 @@ to verify only:
      ./prog_spi.sh -v -i <path_to_boot.bin> -d <board_type>
 to check if SPI is blank:
      ./prog_spi.sh -c -d <board_type>
-
+to erase:
+     ./prog_spi.sh -e -d <board_type>
+to erase and check that SPI is blank:
+     ./prog_spi.sh -ec -d <board_type>
 ```
 
 execute this command to program OSPI:
