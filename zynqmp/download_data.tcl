@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: MIT
 ###############################################################################
 
-source zynqmp/jtag_ready.tcl
+set script_dir [file dirname [info script]]
+source "$script_dir/jtag_ready.tcl"
 jtag_ready
 targets -set -nocase -filter {name =~ "PSU"}
 after 2000

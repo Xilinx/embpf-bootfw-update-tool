@@ -7,7 +7,8 @@
 ################################################################################
 
 puts "Starting the script..."
-source zynqmp/jtag_ready.tcl
+set script_dir [file dirname [info script]]
+source "$script_dir/jtag_ready.tcl"
 jtag_ready
 
 # setting jtag mode moved to uart.tcl

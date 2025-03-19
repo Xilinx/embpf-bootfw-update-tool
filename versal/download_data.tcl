@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: MIT
 ###############################################################################
 
-source versal/boot_mode.tcl
+set script_dir [file dirname [info script]]
+source "$script_dir/boot_mode.tcl"
 jtag_ready
 targets -set -nocase -filter {name =~ "Versal*"}
 after 2000
