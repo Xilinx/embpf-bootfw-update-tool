@@ -294,7 +294,7 @@ while getopts "d:i:b:s:pvhceV" arg; do
                     ;;
                 kria_k26)
                     binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k26.elf}
-                    dtb_file=bin/system_k26_jtag_uart.dtb
+                    dtb_file="${SCRIPT_PATH}"/bin/system_k26_jtag_uart.dtb
                     device_type=zynqmp
                     spi_dma_busy_reg="FF0F0808"
                     ;;
@@ -445,7 +445,7 @@ fi
 if [ ! -f "$binfile" ]; then
    echo "File "$binfile" does not exist, auto downloading bin.zip"
    wget https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v2.0/bin.zip
-   unzip bin.zip
+   unzip bin.zip -d "${SCRIPT_PATH}"
    if [ ! -f "$binfile" ]; then
        echo "Error: File "$binfile" does not exist and auto download failed"
        echo "       please manually download bin.zip from release area in the"

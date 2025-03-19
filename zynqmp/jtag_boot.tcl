@@ -16,7 +16,7 @@ jtag_ready
 targets -set -nocase -filter {name =~ "MicroBlaze PMU"}
 catch {stop}; after 1000
 puts stderr "INFO: Downloading zynqmp_pmufw ELF file to the target."
-dow -force "bin/pmufw.elf"
+dow -force "$script_dir/../bin/pmufw.elf"
 after 2000
 con
 
@@ -38,13 +38,13 @@ after 2000
 targets -set -nocase -filter {name =~ "*A53*#0"}
 after 2000
 puts stderr "INFO: Downloading u-boot ELF file to the target."
-dow -force "bin/u-boot.elf"
+dow -force "$script_dir/../bin/u-boot.elf"
 after 2000
 
 targets -set -nocase -filter {name =~ "*A53*#0"}
 puts stderr "INFO: Downloading bl31 ELF file to the target."
 after 2000
-dow -force "bin/bl31.elf"
+dow -force "$script_dir/../bin/bl31.elf"
 after 2000
 con
 
