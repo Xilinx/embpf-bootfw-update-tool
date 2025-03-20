@@ -4,7 +4,7 @@
 ###############################################################################
 
 set script_dir [file dirname [info script]]
-source "$script_dir/boot_mode.tcl
+source "$script_dir/boot_mode.tcl"
 jtag_ready
 targets -set -nocase -filter {name =~ "Cortex-A72 #0*"}
 set sock [jtagterminal -start -socket]
