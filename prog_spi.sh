@@ -11,8 +11,16 @@
 
 cleanup(){
     kill "${COPROC_PID}" 2>/dev/null
-    exec {COPROC[0]}>&-
-    exec {COPROC[1]}>&-
+    #exec {COPROC[0]}>&-
+    #exec {COPROC[1]}>&-
+
+    if [[ -n "${COPROC[0]+set}" ]]; then
+        exec {COPROC[0]}>&- 2>/dev/null
+    fi
+    if [[ -n "${COPROC[1]+set}" ]]; then
+        exec {COPROC[1]}>&- 2>/dev/null
+    fi
+
     if [[ ! -z "${XSDB_PID}" ]]; then
         kill "${XSDB_PID}" 2>/dev/null
     fi
@@ -22,8 +30,13 @@ cleanup(){
     ps ax | grep xsdb | awk '{print $1}' | xargs --no-run-if-empty kill -9 2>/dev/null
 
     if $jtag_mux; then
-        gpioget $(gpiofind SYSCTLR_JTAG_S0) >/dev/null
-        gpioget $(gpiofind SYSCTLR_JTAG_S1) >/dev/null
+    if [ -z "$remote_ip" ]; then
+        sc_app -c getgpio -t SW3 >/dev/null
+    else
+        curl -s "http://${remote_ip}/cmdquery?sc_cmd=getgpio&target=SW3&params=" >/dev/null
+    fi
+
+
     fi
     sleep 1
 }
@@ -184,7 +197,7 @@ if command -v xsdb >/dev/null 2>&1; then
     XSDB=$(which xsdb)
 else
     # Look for xsdb in the system and filter paths containing "bin/xsdb"
-    XSDB_PATH=$(find /usr /opt /tools /home -iname xsdb 2>/dev/null | grep "/bin/xsdb" | head -n 1)
+    XSDB_PATH=$(find /usr /opt /tools /home -type f -iname xsdb 2>/dev/null | head -n 1)
     XSDB=$XSDB_PATH
 
     #echo "Looking for xsdb binary"
@@ -206,18 +219,36 @@ fi
 
 
 detect_board() {
-    if ! command -v ipmi-fru &> /dev/null; then
-        echo "Error: Script failed - ipmi-fru command not found. Please install it first."  >&2
-        return 1
-    fi
-    eeprom=$(ls /sys/bus/i2c/devices/*/eeprom_cc*/nvmem 2> /dev/null)
-    if [ -n "${eeprom}" ]; then
-        boardid=$(ipmi-fru --fru-file=${eeprom} --interpret-oem-data | awk -F": " '/FRU Board Product/ { print tolower ($2) }')
-        echo $boardid
+
+
+    if [ -z "$remote_ip" ]; then
+        if ! command -v sc_app &> /dev/null; then
+            echo "Error: Script failed - sc_app command not found. Please run versal_eval with updated system controller images."  >&2
+            return 1
+        fi
+
+        boardid=$(sc_app -c board)
+        silicon_rev=$(sc_app -c geteeprom -t onboard -v summary | grep "Silicon Revision"| awk '{print $3}')
     else
-        echo "Error: Script failed - unable to identify board type"  >&2
+
+        silicon_rev_all=$(curl -s "http://${remote_ip}/cmdquery?sc_cmd=geteeprom&target=onboard&params=summary")
+        # echo "silicon_rev_all is ${silicon_rev_all}"  >&2
+        boardid=$(echo ${silicon_rev_all} | awk -F'"Product Name":' '{print $2}' | awk -F'"' '{print $2}')
+        silicon_rev=$(echo ${silicon_rev_all} | awk -F'"Silicon Revision":' '{print $2}' | awk -F'"' '{print $2}')
+    fi
+
+    if [[ -z "$silicon_rev" || -z "$boardid" ]]; then
+        echo "Error: Board ID or Silicon Revision not found or empty."  >&2
         return 1
     fi
+
+    if [ "$silicon_rev" != "PROD" ]; then
+        boardid="${boardid}_${silicon_rev}"
+    fi
+
+    boardid=$(echo "$boardid" | tr '[:upper:]' '[:lower:]')
+
+    echo $boardid
 }
 
 usage () {
@@ -233,6 +264,7 @@ usage () {
     echo "    -c             : check if flash is blank/erased"
     echo "    -e             : erase flash"
     echo "    -V             : verbose logging"
+    echo "    -w             : optional argument to connect to remote hardware server, use IP address or machine name shown by hw_server (without :3121)"
     echo "    -h             : help"
     echo "Example usages:"
     echo "to program in verbose mode:"
@@ -249,8 +281,11 @@ usage () {
     echo "     $0 -e -d <board_type>"
     echo "to erase and check that SPI is blank:"
     echo "     $0 -ec -d <board_type>"
+    echo "to program a remote hw_server target in verbose mode"
+    echo "     $0 -Vp -d <board_type> -i <path_to_boot.bin> -w <remote machine name or IP addr> "
     exit 1
 }
+
 
 # Initialize variables
 path_to_boot_bin=""
@@ -271,13 +306,18 @@ SCRIPT_PATH=$(dirname $0)
 verbose=false
 num_operations=2
 spi_dma_busy_reg=""
+remote_ip=""
 
 # Parse arguments
-while getopts "d:i:b:s:pvhceV" arg; do
+while getopts "d:i:b:s:w:pvhceV" arg; do
     case "$arg" in
         p)
             num_operations=$(( num_operations + 1 ))
             prog_spi=true
+            ;;
+        w)
+            remote_ip=${OPTARG}
+            echo "remote_ip is $remote_ip"
             ;;
         d)
             case ${OPTARG} in
@@ -311,14 +351,8 @@ while getopts "d:i:b:s:pvhceV" arg; do
                     spi_dma_busy_reg="FF0F0808"
                     ;;
                 versal_eval)
-                    BOARD=$(detect_board)
-                    if [ -z "$BOARD" ]; then
-                        echo "Error: Script failed - Unable to identify board type."
-                        exit 1
-                    fi
-                    echo "Detected board type $BOARD"
-                    binfile="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin}
+                    #bin file and boardid detection moved to
+                    # later as script need to intepret -w first.
                     device_type=versal
                     jtag_mux=true
                     scapp_support=true
@@ -373,6 +407,19 @@ while getopts "d:i:b:s:pvhceV" arg; do
     esac
 done
 
+# Need to detect boards after figuring out if this has a remote_ip or not - thus moving out of arg parsing block
+if $scapp_support; then
+    BOARD=$(detect_board)
+    if [ -z "$BOARD" ]; then
+        echo "Error: Script failed - Unable to identify board type."
+        exit 1
+    fi
+    echo "Detected board type $BOARD"
+    binfile="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin
+    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin}
+
+fi
+
 # Check if path_to_boot_bin is empty or device_type is not set
 if [ -z "$device_type" ]; then
     echo "Device type not specified"
@@ -414,10 +461,6 @@ if $b_flag_set; then
     binfile=$overwrite_binfile
 fi
 
-if [ $UID -ne 0 ]; then
-    echo "Error: Script failed - must be root"
-    exit 1
-fi
 
 if ! $check_blank && ! $erase_spi; then
     # check -i for symbolic link
@@ -443,6 +486,10 @@ fi
 
 # Check if the bootbin file has been copied over
 if [ ! -f "$binfile" ]; then
+   if $b_flag_set; then
+       echo "Error: File "$binfile" passed through -b does not exist, script failed"
+       exit 1
+   fi
    echo "File "$binfile" does not exist, auto downloading bin.zip"
    wget https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v2.0/bin.zip
    unzip bin.zip -d "${SCRIPT_PATH}"
@@ -464,13 +511,34 @@ echo "Device type: $device_type"
 
 
 if $jtag_mux; then
-    gpioset $(gpiofind SYSCTLR_JTAG_S0)=0
-    gpioset $(gpiofind SYSCTLR_JTAG_S1)=0
+    if [ -z "$remote_ip" ]; then
+        sc_app -c setgpio -t SW3 -v 0
+    else
+        return_string=$(curl -s "http://${remote_ip}/cmdquery?sc_cmd=setgpio&target=SW3&params=0")
+        if echo "$return_string" | grep -qi "ERROR"; then
+            echo "Error detected for sc_cmd setgpio: $return_string"
+            exit 1
+        fi
+    fi
 fi
 
 if $scapp_support; then
-    sc_app -c setbootmode -t JTAG
-    sc_app -c reset
+    if [ -z "$remote_ip" ]; then
+        sc_app -c setbootmode -t JTAG
+        sc_app -c reset
+    else
+        return_string=$(curl -s "http://${remote_ip}/cmdquery?sc_cmd=setbootmode&target=JTAG&params=")
+        if echo "$return_string" | grep -qi "ERROR"; then
+            echo "Error detected for sc_cmd setbootmode: $return_string"
+            exit 1
+        fi
+        return_string=$(curl -s "http://${remote_ip}/cmdquery?sc_cmd=reset&target=&params=")
+        if echo "$return_string" | grep -qi "ERROR"; then
+            echo "Error detected for sc_cmd reset: $return_string"
+            exit 1
+        fi
+    fi
+
 fi
 
 if $embplus_reset; then
@@ -504,7 +572,7 @@ if [ $remote_uart -ne 0 ]; then
 else
     # Run the xsdb script to start jtag uart and capture the socket port
     socket_file=tmp.socket
-    $XSDB "${SCRIPT_PATH}"/${device_type}/uart.tcl   &> $socket_file &
+    $XSDB "${SCRIPT_PATH}"/${device_type}/uart.tcl "$remote_ip" &> $socket_file &
     XSDB_PID=$!
 
     rt=0
@@ -518,6 +586,7 @@ else
     if [[ ! "$SOCK" =~ ^[0-9]+$ ]]; then
     echo "Error: Script failed to extract a valid JTAG UART socket number."
     echo "       Output was: $SOCK"
+    cleanup
     exit 1
   fi
 
@@ -546,7 +615,7 @@ done
 step=1
 echo "Booting device over JTAG (step $step/$num_operations)"
 step=$(( step + 1 ))
-xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file"
+xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip"
 
 
 sleep 2  # Wait a moment for nc to initialize
@@ -575,7 +644,7 @@ verify_ddr_addr="0x40000000" #location to copy SPI contents to during verify/bla
 if $verify || $prog_spi; then
     echo "Downloading flash image to DDR (step $step/$num_operations)"
     step=$(( step + 1 ))
-    xsdb_cmd "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin"
+    xsdb_cmd "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_boot_bin" "$remote_ip"
 
     if [ "$format" == "gzip" ]; then
         binfile_ddr_addr=$unzipped_binfile_ddr_addr

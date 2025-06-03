@@ -93,6 +93,7 @@ Default Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
     -c             : check if flash is blank/erased
     -e             : erase flash
     -V             : verbose logging
+    -w             : optional argument to connect to remote hardware server, use IP address or machine name shown by hw_server (without :3121)"
     -h             : help
 Example usages:
 to program in verbose mode:
@@ -109,6 +110,8 @@ to erase:
      ./prog_spi.sh -e -d <board_type>
 to erase and check that SPI is blank:
      ./prog_spi.sh -ec -d <board_type>
+to program a remote hw_server target in verbose mode"
+     ./prog_spi.sh -Vp -d <board_type> -i <path_to_boot.bin> -w <remote machine name or IP addr> "
 ```
 
 execute this command to program OSPI:
@@ -133,7 +136,7 @@ sudo ./prog_spi.sh -i <boot.bin> -d kria_k24c
 sudo ./prog_spi.sh -i <boot.bin> -d kria_k24i
 ```
 
-for VHK158, use -d versal_eval and script will automatically check if it is running on VHK158 system controller:
+for VHK158/VEK280/VEK385, use -d versal_eval and script will automatically check if it is running on one of the supported systems:
 ```
 sudo ./prog_spi.sh -i <boot.bin> -d versal_eval
 ```
@@ -142,11 +145,19 @@ When the script finishes (in about 4 minutes), the flash will have been updated 
 
 ### Advanced users
 
+#### -b option
+
 For other versal-based systems, you may create your own boot.bin file that boots u-boot over jtag uart, and then use -b <boot_file> to pass in the boot.bin. The u-boot created must use jtag uart instead of physical uart, and have access to DDR and OSPI. The command would look like below for a Versal based board:
 
 ```
 sudo ./prog_spi.sh -i <boot.bin to program into OSPI> -d versal_eval -b <boot.bin that uses jtag uart>
 ```
+
+#### -w option
+
+The -w option allows you to connect the target system on one machine that may not be able to run this script, and then run this script from a diff machine to program, erase, or verify OSPI. Make sure to start hw_server through default port 3121 on the machine connected to target machine.
+
+If the target machine is a Versal eval platform, then hw_server is automatically started on the system controller for Versal eval platform. curl command over port 80 is used to call sc_app/sc_cmd on system controller to control the system. the IP address passed in through -w is that of the system controller.
 
 ## Known issues and Debug Tips
 

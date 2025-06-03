@@ -8,8 +8,9 @@
 
 puts "Starting the script..."
 set script_dir [file dirname [info script]]
+
 source "$script_dir/jtag_ready.tcl"
-jtag_ready
+jtag_ready [lindex $argv 2]
 
 # setting jtag mode moved to uart.tcl
 

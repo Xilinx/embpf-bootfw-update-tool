@@ -5,7 +5,8 @@
 
 set script_dir [file dirname [info script]]
 source "$script_dir/jtag_ready.tcl"
-jtag_ready
+jtag_ready [lindex $argv 1]
+
 targets -set -nocase -filter {name =~ "PSU"}
 after 2000
 puts stderr "INFO: downloading flash content to DDR"
