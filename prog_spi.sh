@@ -197,14 +197,16 @@ if command -v xsdb >/dev/null 2>&1; then
     XSDB=$(which xsdb)
 else
     # Look for xsdb in the system and filter paths containing "bin/xsdb"
-    XSDB_PATH=$(find /usr /opt /tools /home -type f -iname xsdb 2>/dev/null | head -n 1)
+    echo "Looking for xsdb executables on disk... if it takes too long, consider adding it to PATH and try again"
+    XSDB_PATH=$(sudo find /usr /opt /tools /home -type f -iname xsdb 2>/dev/null | head -n 1)
     XSDB=$XSDB_PATH
 
-    #echo "Looking for xsdb binary"
+    echo "Finished looking for xsdb binary"
     # Check if XSDB_PATH is found
     if [[ -n "$XSDB_PATH" ]]; then
         # Extract the directory part of the path (remove the 'xsdb' part)
         XSDB_DIR=$(dirname "$XSDB_PATH")
+        echo "Found xsdb binary in $XSDB_DIR"
 
         # Add to PATH if not already in PATH
         if [[ ":$PATH:" != *":$XSDB_DIR:"* ]]; then
@@ -264,7 +266,7 @@ usage () {
     echo "    -c             : check if flash is blank/erased"
     echo "    -e             : erase flash"
     echo "    -V             : verbose logging"
-    echo "    -w             : optional argument to connect to remote hardware server, use IP address or machine name shown by hw_server (without :3121)"
+    echo "    -w             : optional argument to connect to remote hardware server, use IP address or machine name shown by hw_server (without :3121). not supported for embplus system"
     echo "    -h             : help"
     echo "Example usages:"
     echo "to program in verbose mode:"
@@ -475,8 +477,16 @@ if ! $check_blank && ! $erase_spi; then
 
     # find size of -i input, accounting for gzip format
     format=$(file "$path_to_boot_bin" | awk '{print $2}')
-    if [ "$format" == "gzip" ]; then
+    if [ "$format" == "gzip" ]; then    
         bin_size=$(file "$path_to_boot_bin" | awk '{print $NF}')
+
+        file_cur_ver=$(file --version | head -n1 | awk -F'-' '{print $2}')
+        file_req_ver="5.40"
+        if [ "$(printf '%s\n' "$file_req_ver" "$file_cur_ver" | sort -V | head -n1)" != "$file_req_ver" ]; then
+            echo "file version $file_cur_ver is too old. using gzip -l"
+            bin_size=$(gzip -l "$path_to_boot_bin" | awk 'NR==2 {print $2}')
+        fi
+
     else
         bin_size=$(stat -c "%s" "$path_to_boot_bin")
     fi
@@ -542,6 +552,12 @@ if $scapp_support; then
 fi
 
 if $embplus_reset; then
+
+    if [ -n "$remote_ip" ]; then
+        echo "-w option is not supported for embplus platform, please run directly on embplug target platform, script failed."
+        exit 1
+    fi
+
     chmod +x versal/embplus_jtag_porb.py
     if ! dpkg-query -W -f='${Status}' python3-ftdi 2>/dev/null | grep -q "install ok installed" ; then
         echo "python3-ftdi is not installed. Installing it now..."
@@ -657,7 +673,7 @@ if $erase_spi; then
     echo "Erase Flash (step $step/$num_operations)"
     step=$(( step + 1 ))
     send_to_jtaguart "sf erase 0 $flash_size_hex"
-    match_output_print_prog "term" "OK" 120 || exit 1
+    match_output_print_prog "term" "OK" 240 || exit 1
     echo "Erase successful - flash is now erased"
 fi
 

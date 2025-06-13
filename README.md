@@ -93,7 +93,7 @@ Default Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
     -c             : check if flash is blank/erased
     -e             : erase flash
     -V             : verbose logging
-    -w             : optional argument to connect to remote hardware server, use IP address or machine name shown by hw_server (without :3121)"
+    -w             : optional argument to connect to remote hardware server, use IP address or machine name shown by hw_server (without :3121), not supported for embplus"
     -h             : help
 Example usages:
 to program in verbose mode:
@@ -118,27 +118,27 @@ execute this command to program OSPI:
 
 for Embedded+:
 ```
-sudo ./prog_ospi.sh -i <boot.bin> -d embplus
+./prog_ospi.sh -i <boot.bin> -d embplus
 ```
 
 for RHINO:
 ```
-sudo ./prog_ospi.sh -i <boot.bin> -d rhino
+./prog_ospi.sh -i <boot.bin> -d rhino
 ```
 
 for Kria Production SOM:
 ```
 #k26c or k26i:
-sudo ./prog_spi.sh -i <boot.bin> -d kria_k26
+./prog_spi.sh -i <boot.bin> -d kria_k26
 #k24c:
-sudo ./prog_spi.sh -i <boot.bin> -d kria_k24c
+./prog_spi.sh -i <boot.bin> -d kria_k24c
 #k24i:
-sudo ./prog_spi.sh -i <boot.bin> -d kria_k24i
+./prog_spi.sh -i <boot.bin> -d kria_k24i
 ```
 
 for VHK158/VEK280/VEK385, use -d versal_eval and script will automatically check if it is running on one of the supported systems:
 ```
-sudo ./prog_spi.sh -i <boot.bin> -d versal_eval
+./prog_spi.sh -i <boot.bin> -d versal_eval
 ```
 
 When the script finishes (in about 4 minutes), the flash will have been updated with <boot.bin>.
@@ -150,7 +150,7 @@ When the script finishes (in about 4 minutes), the flash will have been updated 
 For other versal-based systems, you may create your own boot.bin file that boots u-boot over jtag uart, and then use -b <boot_file> to pass in the boot.bin. The u-boot created must use jtag uart instead of physical uart, and have access to DDR and OSPI. The command would look like below for a Versal based board:
 
 ```
-sudo ./prog_spi.sh -i <boot.bin to program into OSPI> -d versal_eval -b <boot.bin that uses jtag uart>
+./prog_spi.sh -i <boot.bin to program into OSPI> -d versal_eval -b <boot.bin that uses jtag uart>
 ```
 
 #### -w option
@@ -158,6 +158,8 @@ sudo ./prog_spi.sh -i <boot.bin to program into OSPI> -d versal_eval -b <boot.bi
 The -w option allows you to connect the target system on one machine that may not be able to run this script, and then run this script from a diff machine to program, erase, or verify OSPI. Make sure to start hw_server through default port 3121 on the machine connected to target machine.
 
 If the target machine is a Versal eval platform, then hw_server is automatically started on the system controller for Versal eval platform. curl command over port 80 is used to call sc_app/sc_cmd on system controller to control the system. the IP address passed in through -w is that of the system controller.
+
+The -w option is not supported for embplus platform due to the need to directly access GPIOs to put the system in JTAG mode and the system lack a default http server to enable curl commands, like that of SC for Versal eval platform.
 
 ## Known issues and Debug Tips
 
