@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: MIT
 ###############################################################################
 set script_dir [file dirname [info script]]
+
+
+
 source "$script_dir/jtag_ready.tcl"
-jtag_ready
+jtag_ready  [lindex $argv 0]
 
 targets -set -nocase -filter {name =~ "PSU"}
 # update multiboot to ZERO

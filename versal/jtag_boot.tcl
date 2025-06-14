@@ -5,7 +5,7 @@
 
 set script_dir [file dirname [info script]]
 source "$script_dir/boot_mode.tcl"
-jtag_ready
+jtag_ready  [lindex $argv 1]
 targets -set -nocase -filter {name =~ "Versal*"}
 switch_to_jtag
 puts stderr "programming device with jtag boot files to start u-boot"
