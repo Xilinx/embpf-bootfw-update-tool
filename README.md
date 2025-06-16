@@ -8,7 +8,10 @@ This repository provides a utility to update AMD ACAP's (Adaptive Compute Accele
    * [Edge+ VPR-4616](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_4616) Versal OSPI update
    * Rhino Versal OSPI update
 * Kria production SOM QSPI update (K26, K24c, K24i)
-* Versal Eval board VHK158 Versal OSPI update
+* Versal OSPI update for the following Versal Eval platforms:
+     * VHK158, production silicon
+     * VEK280, ES1, production silicon
+     * VEK385, ES1 silicon
 
 ## External Components and one time setup Required
 
