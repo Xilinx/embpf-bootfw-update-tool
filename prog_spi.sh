@@ -501,7 +501,7 @@ if [ ! -f "$binfile" ]; then
        exit 1
    fi
    echo "File "$binfile" does not exist, auto downloading bin.zip"
-   wget https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v2.0/bin.zip
+   wget https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v3.0/bin.zip
    unzip bin.zip -d "${SCRIPT_PATH}"
    if [ ! -f "$binfile" ]; then
        echo "Error: File "$binfile" does not exist and auto download failed"
