@@ -429,7 +429,7 @@ if [ -z "$device_type" ]; then
 fi
 
 
-if ! $check_blank && ! $verify && ! $erase_spi; then
+if ! $check_blank && ! $verify && ! $erase_spi && ! $prog_spi; then
     prog_spi=true
     num_operations=$(( num_operations + 1 ))
     echo "Default to programming flash"
