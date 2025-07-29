@@ -459,6 +459,20 @@ else
     fi
 fi
 
+
+if $prog_spi; then
+        echo "Operation programming SPI enabled"
+fi
+if $erase_spi; then
+        echo "Operation erasing SPI enabled"
+fi
+if $verify; then
+        echo "Operation verifying SPI enabled"
+fi
+if $check_blank; then
+        echo "Operation check if SPI is blank enabled"
+fi
+
 if $b_flag_set; then
     binfile=$overwrite_binfile
 fi
