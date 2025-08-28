@@ -172,6 +172,17 @@ The -w option is not supported for embplus platform due to the need to directly 
 
 * You may ignore the "rlwrap" warnings.
 
+* On the Embedded Plus platform only, the Versal device and the System Controller share an I²C bus without an arbiter. Depending on the firmware programmed on each subsystem, a race condition may occur between the System Controller and the Versal, resulting in a non-functional I²C bus. This script relies on the I²C bus, and when the race condition occurs you may see errors such as:
+  
+  ERROR: failed to connect to socket: Connection refused
+  
+  Error: Board ID or Silicon Revision not found or empty.
+  
+  Error: Script failed - Unable to identify board type.
+
+  Workaround: To avoid the I²C race condition, hold the Versal in reset until the System Controller has fully booted, it then allows programming of a new BOOT.BIN file.
+  
+
 
 # License
 (C) Copyright 2024, Advanced Micro Devices Inc.\
