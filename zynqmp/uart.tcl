@@ -23,5 +23,6 @@ mwr  0xffca0038 0x1ff
 targets -set -nocase -filter {name =~ "Cortex-A53 #0*"}
 set sock [jtagterminal -start -socket]
 puts $sock ;
+flush stdout
 vwait forever
 

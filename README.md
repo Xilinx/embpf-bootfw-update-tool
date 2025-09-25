@@ -1,6 +1,6 @@
 # Embedded Platform BootFW Update Tool
 
-## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V2.0 release.
+## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V4.0 release.
 
 This repository provides a utility to update AMD ACAP's (Adaptive Compute Acceleration Platform aka Adaptive SoC) flash device (OSPI or QSPI) with boot firmware in supported platforms. The current supported platforms are:
 
@@ -11,7 +11,8 @@ This repository provides a utility to update AMD ACAP's (Adaptive Compute Accele
 * Versal OSPI update for the following Versal Eval platforms:
      * VHK158, production silicon
      * VEK280, ES1, production silicon
-     * VEK385, ES1 silicon
+     * VRK160, ES1 silicon
+     * VEK385, revA, revB
 
 ## External Components and one time setup Required
 
@@ -97,6 +98,7 @@ Default Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
     -e             : erase flash
     -V             : verbose logging
     -w             : optional argument to connect to remote hardware server, use IP address or machine name shown by hw_server (without :3121), not supported for embplus"
+    -M		   : optional argument to add memory check to make sure DDR used by script does not overlap u-boot reserved memory region
     -h             : help
 Example usages:
 to program in verbose mode:

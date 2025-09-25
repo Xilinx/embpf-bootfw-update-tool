@@ -17,5 +17,6 @@ if {[catch {targets -set -nocase -filter {name =~ "Cortex-A72* #0*"}}]} {
 
 set sock [jtagterminal -start -socket]
 puts $sock ;
+flush stdout
 vwait forever
 

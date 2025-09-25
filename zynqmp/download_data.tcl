@@ -10,7 +10,7 @@ jtag_ready [lindex $argv 1]
 targets -set -nocase -filter {name =~ "PSU"}
 after 2000
 puts stderr "INFO: downloading flash content to DDR"
-dow -force -data [lindex $argv 0]  0x80000
+dow -force -data [lindex $argv 0]  0x30000000
 after 2000
 puts "INFO: content download to DDR finished"
 

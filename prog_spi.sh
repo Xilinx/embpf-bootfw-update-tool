@@ -9,6 +9,8 @@
 #
 #**********************************************************************
 
+echo "Version 4.0"
+
 cleanup(){
     kill "${COPROC_PID}" 2>/dev/null
     #exec {COPROC[0]}>&-
@@ -30,13 +32,19 @@ cleanup(){
     ps ax | grep xsdb | awk '{print $1}' | xargs --no-run-if-empty kill -9 2>/dev/null
 
     if $jtag_mux; then
-    if [ -z "$remote_ip" ]; then
-        sc_app -c getgpio -t SW3 >/dev/null
-    else
-        curl -s "http://${remote_ip}/cmdquery?sc_cmd=getgpio&target=SW3&params=" >/dev/null
-    fi
-
-
+	if [ -z "$remote_ip" ]; then
+	    if version_ge "$sc_app_ver" "1.25"; then
+		sc_app -c listJTAGselect
+	    else
+		sc_app -c getgpio -t $jtag_gpio >/dev/null
+	    fi
+	else
+	    if version_ge "$sc_app_ver" "1.25"; then
+		curl -s "http://${remote_ip}/cmdquery?sc_cmd=listJTAGselect&target=&params="
+	    else
+		curl -s "http://${remote_ip}/cmdquery?sc_cmd=getgpio&target=$jtag_gpio&params=" >/dev/null
+	    fi
+	fi
     fi
     sleep 1
 }
@@ -187,6 +195,19 @@ xsdb_cmd () {
     $XSDB -interactive $* | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 60 || exit 1
 }
 
+version_ge() {
+    # usage: version_ge <A> <B>   -> returns 0 (true) if A >= B
+    [ -n "$1" ] && [ -n "$2" ] || return 1
+    local A="$1" B="$2"
+
+    # sort -V puts lowest first. If A < B, then A will come first.
+    if [ "$(printf '%s\n' "$A" "$B" | sort -V | head -n1)" = "$B" ]; then
+        return 0  # A >= B
+    else
+        return 1  # A < B
+    fi
+}
+
 if [ -f /etc/profile.d/xsdb-variables.sh ]; then
     source /etc/profile.d/xsdb-variables.sh
     XSDB_PATH=$XILINX_VITIS
@@ -231,21 +252,29 @@ detect_board() {
 
         boardid=$(sc_app -c board)
         silicon_rev=$(sc_app -c geteeprom -t onboard -v summary | grep "Silicon Revision"| awk '{print $3}')
+	board_rev=$(sc_app -c geteeprom -t onboard -v summary | grep "Board Revision"| awk '{print $3}')
     else
-
         silicon_rev_all=$(curl -s "http://${remote_ip}/cmdquery?sc_cmd=geteeprom&target=onboard&params=summary")
         # echo "silicon_rev_all is ${silicon_rev_all}"  >&2
         boardid=$(echo ${silicon_rev_all} | awk -F'"Product Name":' '{print $2}' | awk -F'"' '{print $2}')
         silicon_rev=$(echo ${silicon_rev_all} | awk -F'"Silicon Revision":' '{print $2}' | awk -F'"' '{print $2}')
+	board_rev=$(echo ${silicon_rev_all} | awk -F'"Board Revision":' '{print $2}' | awk -F'"' '{print $2}')
+
     fi
 
-    if [[ -z "$silicon_rev" || -z "$boardid" ]]; then
-        echo "Error: Board ID or Silicon Revision not found or empty."  >&2
+    if [[ -z "$silicon_rev" || -z "$boardid" || -z "$board_rev" ]]; then
+        echo "Error: Board ID ($boardid) or Silicon Revision($silicon_rev) or Board Revision($board_rev) not found or empty."  >&2
         return 1
     fi
 
-    if [ "$silicon_rev" != "PROD" ]; then
-        boardid="${boardid}_${silicon_rev}"
+    # VEK385 - ignore silicon rev. board rev matters
+    # other eval boards - silicon rev matters
+    if [[ "${boardid,,}" =~ vek385 ]]; then
+	boardid="${boardid}_rev${board_rev:0:1}"
+    else 
+	if [ "$silicon_rev" != "PROD" ]; then
+            boardid="${boardid}_${silicon_rev}"
+	fi
     fi
 
     boardid=$(echo "$boardid" | tr '[:upper:]' '[:lower:]')
@@ -266,6 +295,7 @@ usage () {
     echo "    -c             : check if flash is blank/erased"
     echo "    -e             : erase flash"
     echo "    -V             : verbose logging"
+    echo "    -M             : optional argument to add memory check to make sure DDR used by script does not overlap u-boot reserved memory region"
     echo "    -w             : optional argument to connect to remote hardware server, use IP address or machine name shown by hw_server (without :3121). not supported for embplus system"
     echo "    -h             : help"
     echo "Example usages:"
@@ -309,9 +339,12 @@ verbose=false
 num_operations=2
 spi_dma_busy_reg=""
 remote_ip=""
+sc_app_ver=""
+jtag_gpio="SW3"
+bdi_reserved_mem_check=false
 
 # Parse arguments
-while getopts "d:i:b:s:w:pvhceV" arg; do
+while getopts "d:i:b:s:w:pvhceVM" arg; do
     case "$arg" in
         p)
             num_operations=$(( num_operations + 1 ))
@@ -402,6 +435,16 @@ while getopts "d:i:b:s:w:pvhceV" arg; do
         e)
             erase_spi=true
             ;;
+	M)
+	    bdi_reserved_mem_check=true
+	    
+	    if [ -f "${SCRIPT_PATH}/ddr_reserved_mem_check.sh" ]; then
+		. "${SCRIPT_PATH}/ddr_reserved_mem_check.sh"
+	    else
+		echo "Error: ddr_reserved_mem_check.sh not found"
+		exit 1
+	    fi
+	    ;;
         *)
             echo "Unknown argument $OPTARG"
             usage
@@ -419,6 +462,10 @@ if $scapp_support; then
     echo "Detected board type $BOARD"
     binfile="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin
     binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin}
+    
+   if [[ "${BOARD,,}" =~ vrk160 ]]; then
+	jtag_gpio="SW8"
+   fi
 
 fi
 
@@ -536,15 +583,40 @@ echo "Device type: $device_type"
 
 if $jtag_mux; then
     if [ -z "$remote_ip" ]; then
-        sc_app -c setgpio -t SW3 -v 0
+	sc_app_ver=$(sc_app -c version |grep -i "Version"|awk '{print $2}')
     else
-        return_string=$(curl -s "http://${remote_ip}/cmdquery?sc_cmd=setgpio&target=SW3&params=0")
-        if echo "$return_string" | grep -qi "ERROR"; then
-            echo "Error detected for sc_cmd setgpio: $return_string"
-            exit 1
+	sc_app_ver=$(curl -s "http://${remote_ip}/cmdquery?sc_cmd=version&target=&params=" | awk 'BEGIN{IGNORECASE=1; FS="\"version\": *\""} {print $2}' | awk -F'"' '{print $1}')
+    fi
+    echo "sc_app version is $sc_app_ver"
+
+    if version_ge "$sc_app_ver" "1.25"; then
+        # Newer API: use setJTAGselect -t SC
+        if [ -z "$remote_ip" ]; then
+            sc_app -c setJTAGselect -t SC
+        else
+            # target=SC, no params for this command
+            return_string=$(curl -s "http://${remote_ip}/cmdquery?sc_cmd=setJTAGselect&target=SC&params=")
+            if echo "$return_string" | grep -qi "ERROR"; then
+                echo "Error detected for sc_cmd setJTAGselect: $return_string" >&2
+                exit 1
+            fi
+        fi
+    else
+	if $verbose; then
+            echo "WARNING: sc_app version $sc_app_ver is older than 1.25, using legacy set gpio $jtag_gpio"
+	fi
+        if [ -z "$remote_ip" ]; then
+            sc_app -c setgpio -t $jtag_gpio -v 0
+        else
+            return_string=$(curl -s "http://${remote_ip}/cmdquery?sc_cmd=setgpio&target=$jtag_gpio&params=0")
+            if echo "$return_string" | grep -qi "ERROR"; then
+                echo "Error detected for sc_cmd setgpio: $return_string" >&2
+                exit 1
+            fi
         fi
     fi
 fi
+
 
 if $scapp_support; then
     if [ -z "$remote_ip" ]; then
@@ -602,7 +674,7 @@ if [ $remote_uart -ne 0 ]; then
 else
     # Run the xsdb script to start jtag uart and capture the socket port
     socket_file=tmp.socket
-    $XSDB "${SCRIPT_PATH}"/${device_type}/uart.tcl "$remote_ip" &> $socket_file &
+    $XSDB "${SCRIPT_PATH}"/${device_type}/uart.tcl "$remote_ip" &> $socket_file 2>/dev/null &  
     XSDB_PID=$!
 
     rt=0
@@ -665,10 +737,25 @@ if $verbose; then
     echo "Flash size is $flash_size_hex"
 fi
 #kria QSPI size is 0x400_0000, embplus OSPI size is 0x1000_0000
-zipfile_ddr_addr="0x80000" #this is set in download_data.tcl
-binfile_ddr_addr="0x80000" #this is set in download_data.tcl
+download_ddr_addr="0x30000000" #this is set in download_data.tcl
+zipfile_ddr_addr=$download_ddr_addr
+binfile_ddr_addr=$download_ddr_addr
 unzipped_binfile_ddr_addr="0x20000000" #if -i has a gzip file, location to unzip to - should be minimumly size of flash
 verify_ddr_addr="0x40000000" #location to copy SPI contents to during verify/blank check. should minimumly be flash size *2
+
+
+if $bdi_reserved_mem_check; then
+    echo "Checking DDR work areas against U-Boot reserved ranges..."
+    if ! bdi_guard_check \
+        "$download_ddr_addr" "$unzipped_binfile_ddr_addr" "$verify_ddr_addr" \
+        "$flash_size_hex"
+    then
+        echo "DDR overlap check failed. Refusing to proceed to protect reserved memory."
+        cleanup
+        exit 1
+    fi
+    echo "DDR overlap check passed."
+fi
 
 
 if $verify || $prog_spi; then
@@ -695,7 +782,7 @@ if $check_blank; then
     echo "Check to see if flash is blank (step $step/$num_operations)"
     step=$(( step + 1 ))
     send_to_jtaguart "sf read $verify_ddr_addr 0 $flash_size_hex"
-    match_output_print_prog "term" "OK" 120 || exit 1
+    match_output_print_prog "term" "OK" 480 || exit 1
     send_to_jtaguart "mw.b $binfile_ddr_addr 0xff $flash_size_hex"
     sleep 10 # wait for mw to finish 
     # Wait for SPI DMA to finish
@@ -721,7 +808,7 @@ if $verify; then
     echo "Verifying (step $step/$num_operations)"
     step=$(( step + 1 ))
     send_to_jtaguart "sf read $verify_ddr_addr 0x0 $bin_size_hex"
-    match_output_print_prog "term" "OK" 120 || exit 1
+    match_output_print_prog "term" "OK" 480 || exit 1
     # Wait for SPI DMA to finish
     send_to_jtaguart "mw 10000 00 1"
     send_to_jtaguart "cmp.b $spi_dma_busy_reg 10000 1; while itest \$? != 0; do sleep 1; cmp.b $spi_dma_busy_reg 10000 1; done; echo DONE"

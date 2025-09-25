@@ -10,7 +10,7 @@ targets -set -nocase -filter {name =~ "Versal*"}
 after 2000
 puts stderr "downloading flash content to DDR"
 plm set-log-level 0
-dow -force -data [lindex $argv 0]  0x80000
+dow -force -data [lindex $argv 0]  0x30000000
 puts "content download to DDR finished"
 disconnect
 exit
