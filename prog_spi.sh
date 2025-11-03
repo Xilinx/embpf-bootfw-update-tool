@@ -557,19 +557,20 @@ fi
 
 # Check if the bootbin file has been copied over
 if [ ! -f "$binfile" ]; then
-   if $b_flag_set; then
-       echo "Error: File "$binfile" passed through -b does not exist, script failed"
-       exit 1
-   fi
    echo "File "$binfile" does not exist, auto downloading bin.zip"
-   wget https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v4.0/bin.zip
-   unzip bin.zip -d "${SCRIPT_PATH}"
+   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v4.0/bin.zip
+   unzip -o bin.zip -d "${SCRIPT_PATH}"
    if [ ! -f "$binfile" ]; then
-       echo "Error: File "$binfile" does not exist and auto download failed"
-       echo "       please manually download bin.zip from release area in the"
-       echo "       repo and place in this folder. Script failed"
-       exit 1
-    fi
+       if $b_flag_set; then
+	   echo "Error: File "$binfile" passed through -b does not exist, script failed"
+	   exit 1
+       else
+	   echo "Error: File "$binfile" does not exist and auto download failed"
+	   echo "       please manually download bin.zip from release area in the"
+	   echo "       repo and place in this folder. Script failed"
+	   exit 1
+       fi
+   fi
 fi
 
 if $verbose; then
