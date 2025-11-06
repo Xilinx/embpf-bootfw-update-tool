@@ -567,6 +567,7 @@ if [ ! -f "$binfile" ]; then
        else
 	   echo "Error: File "$binfile" does not exist and auto download failed"
 	   echo "       please manually download bin.zip from release area in the"
+	   echo "       https://github.com/Xilinx/embpf-bootfw-update-tool"
 	   echo "       repo and place in this folder. Script failed"
 	   exit 1
        fi
