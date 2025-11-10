@@ -168,6 +168,25 @@ The -w option is not supported for embplus platform due to the need to directly 
 
 ## Known issues and Debug Tips
 
+* Intermittent OSPI update timeout on Versal Devices:
+    Occassionally updating the OSPI in Versal encounters timeout during the programming process:
+    ```
+  	    received on term:  Updating, 1% 780335 B/sjedec_spi_nor flash@0: flash operation timed out
+	    received on term:
+	    received on term:  SPI flash failed in write step
+    ```
+
+    or:
+
+    ```
+	    received on term:  Updating, 54% 2021462 B/sQSPI: QSPI is still busy after poll for 5000 ms.
+	    received on term:  
+	    received on term:  SPI flash failed in erase step
+    ```
+
+    The issue occurs sporadically, approximately once every 20 to 30 update attepts - and is generally transcient. 
+    workaround: re-run the programming command, the update typically succeeds on a subsequent attempt. 
+
 * If the script is stopped during execution, Versal may get in an indeterminate state. If you have issues running the script subsequently, power cycle the platform (not just a reboot) and try the script again.
 
 * The tool will attempt to put the Versal in JTAG bootmode - via FTDI if that is available on the platform and always via XSDB. If the platform is in OSPI mode and OSPI already contains boot code that prevents access to DDR and OSPI from the utility - you may need to change platform to JTAG bootmode via hardware jumpers to prevent OSPI code from executing.
