@@ -21,6 +21,24 @@ proc jtag_ready {hw_ip} {
             break
         }
     }
+
+    set retry 0
+    while {$retry < 25} {
+	set out ""
+	catch { set out [targets] } err
+	puts "targets:\n$out"
+
+	if {[string first "Cannot" $out] != -1 } {
+	    puts "retry TA $retry"
+	    after 100
+	    incr retry
+	} else {
+	    break
+	}
+	if {$retry == 24} {
+	    error "Failed"
+	}
+    }
 }
 
 #
