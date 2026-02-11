@@ -168,6 +168,28 @@ The -w option is not supported for embplus platform due to the need to directly 
 
 ## Known issues and Debug Tips
 
+* certificate error:
+	The script need to download bin.zip file from github, and if timestamp on the OS is not correct, it may fail with certification error:
+
+	```
+		Connecting to github.com|140.82.114.4|:443... connected.
+		ERROR: The certificate of ‘github.com’ is not trusted.
+		ERROR: The certificate of ‘github.com’ is not yet activated.
+	```
+
+	To fix it, manually set time to the correct time, example:
+
+	```
+		sudo date -s "2026-02-10 03:30:00"
+	```
+* Intermittent Versal target errors
+	On some Versal platforms, intermittent errors may occur where xsdb is unable to connect to the target:
+	```
+		Switching to JTAG boot mode: AHB AP transaction error, DAP status 0x30000023
+	```
+
+	If this occurs, rerun the command. If the issue persists, power-cycle the platform and try again.
+
 * Intermittent OSPI update timeout on Versal Devices:
     Occassionally updating the OSPI in Versal encounters timeout during the programming process:
     ```
