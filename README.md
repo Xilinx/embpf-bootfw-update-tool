@@ -205,6 +205,12 @@ The -w option is not supported for embplus platform due to the need to directly 
 	    received on term:  
 	    received on term:  SPI flash failed in erase step
     ```
+    or:
+    
+    ```
+    	Error: Script failed to extract a valid JTAG UART socket number. 
+		Output was: ERROR: Could not find a suitable Cortex-A72 or A78 core SC 0x0 FTDI 0x1 EXT 0x2 
+    ```
 
     The issue occurs sporadically, approximately once every 20 to 30 update attepts - and is generally transcient. 
     workaround: re-run the programming command, the update typically succeeds on a subsequent attempt. 
