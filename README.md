@@ -168,6 +168,8 @@ The -w option is not supported for embplus platform due to the need to directly 
 
 ## Known issues and Debug Tips
 
+* Script does not support programing OSPI on systems with multiple possible targets. For an example, it does not support programming on a host with more than 1 V80 cards.
+
 * certificate error:
 	The script need to download bin.zip file from github, and if timestamp on the OS is not correct, it may fail with certification error:
 

@@ -286,8 +286,9 @@ usage () {
     echo "Default Usage: $0 -i <path_to_boot.bin> -d <board_type>"
     echo "    -i <file>      : Bin file to write into OSPI/QSPI, can be a .bin or a gzip of the .bin file"
     echo "    -d <board>     : Board type.  Supported values"
-    echo "                     embplus, rhino, kria_k26, kria_k24c,"
-    echo "                     kria_k24i, versal_eval"
+    echo "                     embplus, embplus_5050a, rhino, v80"
+    echo "                     kria_k26, kria_k24c, kria_k24i"
+    echo "                     versal_eval"
     echo "    -b <boot_file> : Optional argument to override jtag boot.bin, for Versal only"
     echo "    -s <SOCK #>    : Optional argument to specify remote uart SOCK number"
     echo "    -p             : Optional argument program SPI, this is set by default except if -v or -b is present"
@@ -362,8 +363,19 @@ while getopts "d:i:b:s:w:pvhceVM" arg; do
                     embplus_reset=true
                     spi_dma_busy_reg="f1011808"
                     ;;
+                embplus_5050a)
+                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_embplus_5050a_jtaguart.bin}
+                    device_type=versal
+                    embplus_reset=true
+                    spi_dma_busy_reg="f1011808"
+                    ;;
                 rhino)
                     binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_rhino_jtaguart.bin}
+                    device_type=versal
+                    spi_dma_busy_reg="f1011808"
+                    ;;
+                v80)
+                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_v80_jtaguart.bin}
                     device_type=versal
                     spi_dma_busy_reg="f1011808"
                     ;;
