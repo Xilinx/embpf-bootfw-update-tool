@@ -5,7 +5,8 @@
 
 
 proc jtag_ready {hw_ip} {
-#connect
+#    after 1000
+
     if {$hw_ip eq "" || $hw_ip eq "local"} {
         connect
     } else {
@@ -14,27 +15,41 @@ proc jtag_ready {hw_ip} {
 
     set retry 0
     while {$retry < 25} {
-        if {[string first "closed" "[jtag targets]"] != -1} {
+	set out ""
+	catch { set out [jtag targets] } err
+        if {[string first "closed" $out] != -1} {
+	    puts "retry jtag TA $retry"
             after 100
             incr retry
         } else {
             break
         }
+	if {$retry == 24} {
+	    puts "jtag targets failed:\n$out"
+	    error "JTAG_ready failed closed"
+	}
     }
 
     set retry 0
     while {$retry < 25} {
 	set out ""
 	catch { set out [targets] } err
-	
+
 	if {[string first "Cannot" $out] != -1 } {
+	    puts "retry TA $retry"
 	    after 100
 	    incr retry
 	} else {
 	    break
 	}
-    }
+	if {$retry == 24} {
+	    puts "targets failed:\n$out"
+	    error "JTAG_ready failed Cannot"
+	}
+    }    
 }
+
+
 
 #
 # Switch to JTAG boot mode #
