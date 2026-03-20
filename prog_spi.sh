@@ -192,7 +192,7 @@ percentBar ()  {
 }
 
 xsdb_cmd () {
-    $XSDB -interactive $* | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 60 || exit 1
+    "$XSDB" -interactive "$@" | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 60 || exit 1
 }
 
 version_ge() {
@@ -286,7 +286,9 @@ usage () {
     echo "Default Usage: $0 -i <path_to_boot.bin> -d <board_type>"
     echo "    -i <file>      : Bin file to write into OSPI/QSPI, can be a .bin or a gzip of the .bin file"
     echo "    -d <board>     : Board type.  Supported values"
-    echo "                     embplus, embplus_5050a, rhino, v80"
+    echo "                     embplus(defaults to 4616), embplus_4616"
+    echo "		       embplus_5050, embplus_5050a"
+    echo "                     rhino, v80"
     echo "                     kria_k26, kria_k24c, kria_k24i"
     echo "                     versal_eval"
     echo "    -b <boot_file> : Optional argument to override jtag boot.bin, for Versal only"
@@ -357,43 +359,39 @@ while getopts "d:i:b:s:w:pvhceVM" arg; do
             ;;
         d)
             case ${OPTARG} in
-                embplus)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_embplus_jtaguart.bin}
-                    device_type=versal
-                    embplus_reset=true
-                    spi_dma_busy_reg="f1011808"
-                    ;;
-                embplus_5050a)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_embplus_5050a_jtaguart.bin}
-                    device_type=versal
-                    embplus_reset=true
-                    spi_dma_busy_reg="f1011808"
-                    ;;
+
+		embplus|embplus_*)
+		    device_type=versal
+		    embplus_reset=true
+		    spi_dma_busy_reg="f1011808"
+		    
+		    binfile="${SCRIPT_PATH}/bin/BOOT_${OPTARG}_jtaguart.bin"
+		    ;;
                 rhino)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_rhino_jtaguart.bin}
+                    binfile="${SCRIPT_PATH}/bin/BOOT_rhino_jtaguart.bin"
                     device_type=versal
                     spi_dma_busy_reg="f1011808"
                     ;;
                 v80)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_v80_jtaguart.bin}
+                    binfile="${SCRIPT_PATH}/bin/BOOT_v80_jtaguart.bin"
                     device_type=versal
                     spi_dma_busy_reg="f1011808"
                     ;;
                 kria_k26)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k26.elf}
-                    dtb_file="${SCRIPT_PATH}"/bin/system_k26_jtag_uart.dtb
+                    binfile="${SCRIPT_PATH}/bin/zynqmp_fsbl_k26.elf"
+                    dtb_file="${SCRIPT_PATH}/bin/system_k26_jtag_uart.dtb"
                     device_type=zynqmp
                     spi_dma_busy_reg="FF0F0808"
                     ;;
                 kria_k24c)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k24c.elf}
-                    dtb_file="${SCRIPT_PATH}"/bin/system_k24c_jtag_uart.dtb
+                    binfile="${SCRIPT_PATH}/bin/zynqmp_fsbl_k24c.elf"
+                    dtb_file="${SCRIPT_PATH}/bin/system_k24c_jtag_uart.dtb"
                     device_type=zynqmp
                     spi_dma_busy_reg="FF0F0808"
                     ;;
                 kria_k24i)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k24i.elf}
-                    dtb_file="${SCRIPT_PATH}"/bin/system_k24i_jtag_uart.dtb
+                    binfile="${SCRIPT_PATH}/bin/zynqmp_fsbl_k24i.elf"
+                    dtb_file="${SCRIPT_PATH}/bin/system_k24i_jtag_uart.dtb"
                     device_type=zynqmp
                     spi_dma_busy_reg="FF0F0808"
                     ;;
@@ -473,7 +471,6 @@ if $scapp_support; then
     fi
     echo "Detected board type $BOARD"
     binfile="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin
-    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin}
     
    if [[ "${BOARD,,}" =~ vrk160 ]]; then
 	jtag_gpio="SW8"

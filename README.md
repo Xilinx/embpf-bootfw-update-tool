@@ -6,13 +6,18 @@ This repository provides a utility to update AMD ACAP's (Adaptive Compute Accele
 
 * [Embedded+](https://www.amd.com/en/products/embedded/embedded-plus.html) products
    * [Edge+ VPR-4616](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_4616) Versal OSPI update
+   * [Edge+ VPR-5050](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_5050) Versal OSPI update
+   * [Edge+ VPR-5050a](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_5050a) Versal OSPI update
    * Rhino Versal OSPI update
 * Kria production SOM QSPI update (K26, K24c, K24i)
 * Versal OSPI update for the following Versal Eval platforms:
      * VHK158, production silicon
      * VEK280, ES1, production silicon
      * VRK160, ES1 silicon
+     * VRK165, ES1 silicon
      * VEK385, revA, revB
+* Versal OSPI update for Alveo Acelerator
+     * V80
 
 ## External Components and one time setup Required
 
@@ -88,8 +93,10 @@ prog_spi.sh is used to program OSPI:
 Default Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
     -i <file>      : Bin file to write into OSPI/QSPI, can be a .bin or a gzip of the .bin file
     -d <board>     : Board type.  Supported values
-                     embplus, rhino, kria_k26, kria_k24c,
-                     kria_k24i, versal_eval
+		     embplus(defaults to 4616), embplus_4616, embplus_5050, embplus_5050a
+		     rhino, v80
+		     kria_k26, kria_k24c, kria_k24i
+                     versal_eval
     -b <boot_file> : Optional argument to override jtag boot.bin, for Versal only
     -s <SOCK #>    : Optional argument to specify remote uart SOCK number
     -p             : Optional argument program SPI, this is set by default except if -v or -b is present
@@ -141,7 +148,7 @@ for Kria Production SOM:
 ./prog_spi.sh -i <boot.bin> -d kria_k24i
 ```
 
-for VHK158/VEK280/VEK385, use -d versal_eval and script will automatically check if it is running on one of the supported systems:
+for VHK158/VEK280/VEK385/VRK160/VRK165, use -d versal_eval and script will automatically check if it is running on one of the supported systems:
 ```
 ./prog_spi.sh -i <boot.bin> -d versal_eval
 ```
@@ -223,7 +230,11 @@ The -w option is not supported for embplus platform due to the need to directly 
 
 * You may ignore the "rlwrap" warnings.
 
-* On the Embedded Plus platform only, the Versal device and the System Controller share an I²C bus without an arbiter. Depending on the firmware programmed on each subsystem, a race condition may occur between the System Controller and the Versal, resulting in a non-functional I²C bus. This script relies on the I²C bus, and when the race condition occurs you may see errors such as:
+* on the embplus platforms, the Linux image sometimes requires privileged access to FTDI. If this error is seen, rerun prog_spi.sh call with sudo:
+
+  ```ValueError: The device has no langid (permission issue, no string descriptors supported or device error)```
+
+* On the versal_eval platform only, the Versal device and the System Controller share an I²C bus without an arbiter. Depending on the firmware programmed on each subsystem, a race condition may occur between the System Controller and the Versal, resulting in a non-functional I²C bus. This script relies on the I²C bus, and when the race condition occurs you may see errors such as:
   
   ERROR: failed to connect to socket: Connection refused
   
