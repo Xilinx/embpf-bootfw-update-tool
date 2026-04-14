@@ -31,21 +31,24 @@ cleanup(){
 
     ps ax | grep xsdb | awk '{print $1}' | xargs --no-run-if-empty kill -9 2>/dev/null
 
+
+
     if $jtag_mux; then
 	if [ -z "$remote_ip" ]; then
 	    if version_ge "$sc_app_ver" "1.25"; then
-		sc_app -c listJTAGselect
+		sc_app -c setJTAGselect -t FTDI
 	    else
-		sc_app -c getgpio -t $jtag_gpio >/dev/null
+		sc_app -c setgpio -t $jtag_gpio -v 1
 	    fi
 	else
 	    if version_ge "$sc_app_ver" "1.25"; then
-		curl -s "http://${remote_ip}/cmdquery?sc_cmd=listJTAGselect&target=&params="
+		curl -s "http://${remote_ip}/cmdquery?sc_cmd=setJTAGselect&target=FTDI&params="
 	    else
-		curl -s "http://${remote_ip}/cmdquery?sc_cmd=getgpio&target=$jtag_gpio&params=" >/dev/null
+		curl -s "http://${remote_ip}/cmdquery?sc_cmd=setgpio&target=$jtag_gpio&params=1" >/dev/null
 	    fi
 	fi
     fi
+    echo "INFO: JTAG Select set to FTDI, bootmode set to JTAG"
     sleep 1
 }
 # Function to send strings to the JTAG UART
@@ -472,7 +475,7 @@ if $scapp_support; then
     echo "Detected board type $BOARD"
     binfile="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin
     
-   if [[ "${BOARD,,}" =~ vrk160 ]]; then
+   if [[ "${BOARD,,}" =~ vrk16 ]]; then
 	jtag_gpio="SW8"
    fi
 
