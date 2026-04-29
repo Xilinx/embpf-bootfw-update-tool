@@ -4,7 +4,7 @@
 #**********************************************************************
 #
 # Copyright (C) 2020 - 2021 Xilinx, Inc.
-# Copyright (C) 2022 - 2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2022 - 2026, Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: MIT
 #
 #**********************************************************************
@@ -332,6 +332,7 @@ dtb_file=""
 jtag_mux=false
 flash_size_hex=""
 embplus_reset=false
+ospi_boot=false
 scapp_support=false
 verify=false
 prog_spi=false
@@ -369,6 +370,7 @@ while getopts "d:i:b:s:w:pvhceVM" arg; do
 		    spi_dma_busy_reg="f1011808"
 		    
 		    binfile="${SCRIPT_PATH}/bin/BOOT_${OPTARG}_jtaguart.bin"
+		    ospi_boot=true
 		    ;;
                 rhino)
                     binfile="${SCRIPT_PATH}/bin/BOOT_rhino_jtaguart.bin"
@@ -379,6 +381,7 @@ while getopts "d:i:b:s:w:pvhceVM" arg; do
                     binfile="${SCRIPT_PATH}/bin/BOOT_v80_jtaguart.bin"
                     device_type=versal
                     spi_dma_busy_reg="f1011808"
+                    ospi_boot=true
                     ;;
                 kria_k26)
                     binfile="${SCRIPT_PATH}/bin/zynqmp_fsbl_k26.elf"
@@ -658,7 +661,7 @@ if $embplus_reset; then
         exit 1
     fi
 
-    chmod +x versal/embplus_jtag_porb.py
+    chmod +x "${SCRIPT_PATH}/versal/embplus_jtag_porb.py"
     if ! dpkg-query -W -f='${Status}' python3-ftdi 2>/dev/null | grep -q "install ok installed" ; then
         echo "python3-ftdi is not installed. Installing it now..."
         if command -v apt &> /dev/null; then
@@ -679,7 +682,7 @@ if $embplus_reset; then
     echo "Setting EmbPlus to JTAG mode and performing por_b reset"
     sudo modprobe -r  xclmgmt &> /dev/null
     sudo modprobe -r  xocl &> /dev/null
-    python3 versal/embplus_jtag_porb.py
+    python3 "${SCRIPT_PATH}/versal/embplus_jtag_porb.py"
     sleep 1
 fi
 
@@ -830,6 +833,11 @@ if $verify; then
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $bin_size_hex"
     match_output_print_prog "term" "were the same" 120 || exit 1
     echo "Verification successful"
+fi
+
+if $ospi_boot; then
+    echo "Booting from OSPI"
+    $XSDB "${SCRIPT_PATH}"/${device_type}/ospi_boot.tcl
 fi
 
 cleanup
