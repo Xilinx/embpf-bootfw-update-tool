@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: MIT
 ###############################################################################
 
-
 proc jtag_ready {hw_ip} {
-#connect
+    after 1000
+
     if {$hw_ip eq "" || $hw_ip eq "local"} {
         connect
     } else {
@@ -14,14 +14,31 @@ proc jtag_ready {hw_ip} {
 
     set retry 0
     while {$retry < 25} {
-        if {[string first "closed" "[jtag targets]"] != -1} {
+	set out ""
+	catch { set out [jtag targets] } err
+        if {[string first "closed" $out] != -1} {
             after 100
             incr retry
         } else {
             break
         }
     }
+
+    set retry 0
+    while {$retry < 25} {
+	set out ""
+	catch { set out [targets] } err
+
+	if {[string first "Cannot" $out] != -1 } {
+	    after 100
+	    incr retry
+	} else {
+	    break
+	}
+    }    
 }
+
+
 
 #
 # Switch to JTAG boot mode #
@@ -53,7 +70,10 @@ proc switch_to_jtag {} {
 	mwr -force 0xF1260320 0x77
 
 	# Perform reset
-	rst -system
+        rst -system
+
+        after 1000
+
 }
 
 

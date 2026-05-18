@@ -4,12 +4,12 @@
 #**********************************************************************
 #
 # Copyright (C) 2020 - 2021 Xilinx, Inc.
-# Copyright (C) 2022 - 2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2022 - 2026, Advanced Micro Devices, Inc.
 # SPDX-License-Identifier: MIT
 #
 #**********************************************************************
 
-echo "Version 4.0"
+echo "Version 5.0"
 
 cleanup(){
     kill "${COPROC_PID}" 2>/dev/null
@@ -31,21 +31,24 @@ cleanup(){
 
     ps ax | grep xsdb | awk '{print $1}' | xargs --no-run-if-empty kill -9 2>/dev/null
 
+
+
     if $jtag_mux; then
 	if [ -z "$remote_ip" ]; then
 	    if version_ge "$sc_app_ver" "1.25"; then
-		sc_app -c listJTAGselect
+		sc_app -c setJTAGselect -t FTDI
 	    else
-		sc_app -c getgpio -t $jtag_gpio >/dev/null
+		sc_app -c setgpio -t $jtag_gpio -v 1
 	    fi
 	else
 	    if version_ge "$sc_app_ver" "1.25"; then
-		curl -s "http://${remote_ip}/cmdquery?sc_cmd=listJTAGselect&target=&params="
+		curl -s "http://${remote_ip}/cmdquery?sc_cmd=setJTAGselect&target=FTDI&params="
 	    else
-		curl -s "http://${remote_ip}/cmdquery?sc_cmd=getgpio&target=$jtag_gpio&params=" >/dev/null
+		curl -s "http://${remote_ip}/cmdquery?sc_cmd=setgpio&target=$jtag_gpio&params=1" >/dev/null
 	    fi
 	fi
     fi
+    echo "INFO: JTAG Select set to FTDI, bootmode set to JTAG"
     sleep 1
 }
 # Function to send strings to the JTAG UART
@@ -192,7 +195,7 @@ percentBar ()  {
 }
 
 xsdb_cmd () {
-    $XSDB -interactive $* | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 60 || exit 1
+    "$XSDB" -interactive "$@" | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 60 || exit 1
 }
 
 version_ge() {
@@ -286,8 +289,11 @@ usage () {
     echo "Default Usage: $0 -i <path_to_boot.bin> -d <board_type>"
     echo "    -i <file>      : Bin file to write into OSPI/QSPI, can be a .bin or a gzip of the .bin file"
     echo "    -d <board>     : Board type.  Supported values"
-    echo "                     embplus, rhino, kria_k26, kria_k24c,"
-    echo "                     kria_k24i, versal_eval"
+    echo "                     embplus(defaults to 4616), embplus_4616"
+    echo "		       embplus_5050, embplus_5050a"
+    echo "                     rhino, v80"
+    echo "                     kria_k26, kria_k24c, kria_k24i"
+    echo "                     versal_eval"
     echo "    -b <boot_file> : Optional argument to override jtag boot.bin, for Versal only"
     echo "    -s <SOCK #>    : Optional argument to specify remote uart SOCK number"
     echo "    -p             : Optional argument program SPI, this is set by default except if -v or -b is present"
@@ -326,6 +332,7 @@ dtb_file=""
 jtag_mux=false
 flash_size_hex=""
 embplus_reset=false
+ospi_boot=false
 scapp_support=false
 verify=false
 prog_spi=false
@@ -356,32 +363,41 @@ while getopts "d:i:b:s:w:pvhceVM" arg; do
             ;;
         d)
             case ${OPTARG} in
-                embplus)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_embplus_jtaguart.bin}
+
+		embplus|embplus_*)
+		    device_type=versal
+		    embplus_reset=true
+		    spi_dma_busy_reg="f1011808"
+		    
+		    binfile="${SCRIPT_PATH}/bin/BOOT_${OPTARG}_jtaguart.bin"
+		    ospi_boot=true
+		    ;;
+                rhino)
+                    binfile="${SCRIPT_PATH}/bin/BOOT_rhino_jtaguart.bin"
                     device_type=versal
-                    embplus_reset=true
                     spi_dma_busy_reg="f1011808"
                     ;;
-                rhino)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_rhino_jtaguart.bin}
+                v80)
+                    binfile="${SCRIPT_PATH}/bin/BOOT_v80_jtaguart.bin"
                     device_type=versal
                     spi_dma_busy_reg="f1011808"
+                    ospi_boot=true
                     ;;
                 kria_k26)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k26.elf}
-                    dtb_file="${SCRIPT_PATH}"/bin/system_k26_jtag_uart.dtb
+                    binfile="${SCRIPT_PATH}/bin/zynqmp_fsbl_k26.elf"
+                    dtb_file="${SCRIPT_PATH}/bin/system_k26_jtag_uart.dtb"
                     device_type=zynqmp
                     spi_dma_busy_reg="FF0F0808"
                     ;;
                 kria_k24c)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k24c.elf}
-                    dtb_file="${SCRIPT_PATH}"/bin/system_k24c_jtag_uart.dtb
+                    binfile="${SCRIPT_PATH}/bin/zynqmp_fsbl_k24c.elf"
+                    dtb_file="${SCRIPT_PATH}/bin/system_k24c_jtag_uart.dtb"
                     device_type=zynqmp
                     spi_dma_busy_reg="FF0F0808"
                     ;;
                 kria_k24i)
-                    binfile=${binfile:="${SCRIPT_PATH}"/bin/zynqmp_fsbl_k24i.elf}
-                    dtb_file="${SCRIPT_PATH}"/bin/system_k24i_jtag_uart.dtb
+                    binfile="${SCRIPT_PATH}/bin/zynqmp_fsbl_k24i.elf"
+                    dtb_file="${SCRIPT_PATH}/bin/system_k24i_jtag_uart.dtb"
                     device_type=zynqmp
                     spi_dma_busy_reg="FF0F0808"
                     ;;
@@ -461,9 +477,8 @@ if $scapp_support; then
     fi
     echo "Detected board type $BOARD"
     binfile="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin
-    binfile=${binfile:="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin}
     
-   if [[ "${BOARD,,}" =~ vrk160 ]]; then
+   if [[ "${BOARD,,}" =~ vrk16 ]]; then
 	jtag_gpio="SW8"
    fi
 
@@ -558,7 +573,7 @@ fi
 # Check if the bootbin file has been copied over
 if [ ! -f "$binfile" ]; then
    echo "File "$binfile" does not exist, auto downloading bin.zip"
-   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v4.0/bin.zip
+   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v5.0/bin.zip
    unzip -o bin.zip -d "${SCRIPT_PATH}"
    if [ ! -f "$binfile" ]; then
        if $b_flag_set; then
@@ -646,7 +661,7 @@ if $embplus_reset; then
         exit 1
     fi
 
-    chmod +x versal/embplus_jtag_porb.py
+    chmod +x "${SCRIPT_PATH}/versal/embplus_jtag_porb.py"
     if ! dpkg-query -W -f='${Status}' python3-ftdi 2>/dev/null | grep -q "install ok installed" ; then
         echo "python3-ftdi is not installed. Installing it now..."
         if command -v apt &> /dev/null; then
@@ -667,7 +682,7 @@ if $embplus_reset; then
     echo "Setting EmbPlus to JTAG mode and performing por_b reset"
     sudo modprobe -r  xclmgmt &> /dev/null
     sudo modprobe -r  xocl &> /dev/null
-    python3 versal/embplus_jtag_porb.py
+    python3 "${SCRIPT_PATH}/versal/embplus_jtag_porb.py"
     sleep 1
 fi
 
@@ -818,6 +833,11 @@ if $verify; then
     send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $bin_size_hex"
     match_output_print_prog "term" "were the same" 120 || exit 1
     echo "Verification successful"
+fi
+
+if $ospi_boot; then
+    echo "Booting from OSPI"
+    $XSDB "${SCRIPT_PATH}"/${device_type}/ospi_boot.tcl
 fi
 
 cleanup
