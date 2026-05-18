@@ -9,7 +9,7 @@
 #
 #**********************************************************************
 
-echo "Version 4.0"
+echo "Version 5.0"
 
 cleanup(){
     kill "${COPROC_PID}" 2>/dev/null
@@ -573,7 +573,7 @@ fi
 # Check if the bootbin file has been copied over
 if [ ! -f "$binfile" ]; then
    echo "File "$binfile" does not exist, auto downloading bin.zip"
-   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v4.0/bin.zip
+   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v5.0/bin.zip
    unzip -o bin.zip -d "${SCRIPT_PATH}"
    if [ ! -f "$binfile" ]; then
        if $b_flag_set; then
