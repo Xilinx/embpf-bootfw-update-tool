@@ -1,23 +1,30 @@
-# Embedded Platform BootFW Update Tool
+# Embedded Platform Flash Update Tool
 
-## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V5.0 release.
+## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V6.0 release.
 
-This repository provides a utility to update AMD ACAP's (Adaptive Compute Acceleration Platform aka Adaptive SoC) flash device (OSPI or QSPI) with boot firmware in supported platforms. The current supported platforms are:
+This repository provides a utility to update AMD ACAP's (Adaptive Compute Acceleration Platform aka Adaptive SoC) flash device (OSPI, QSPI, UFS or eMMC) with boot firmware or disk image in supported platforms. The current supported platforms are:
 
 * [Embedded+](https://www.amd.com/en/products/embedded/embedded-plus.html) products
    * [Edge+ VPR-4616](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_4616) Versal OSPI update
    * [Edge+ VPR-5050](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_5050) Versal OSPI update
    * [Edge+ VPR-5050a](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_5050a) Versal OSPI update
    * Rhino Versal OSPI update
-* Kria production SOM QSPI update (K26, K24c, K24i)
-* Versal OSPI update for the following Versal Eval platforms:
-     * VHK158, production silicon
-     * VEK280, ES1, production silicon
-     * VRK160, ES1 silicon
-     * VRK165, ES1 silicon
-     * VEK385, revA, revB
+* Kria production SOM QSPI and eMMC update (K26, K24c, K24i)
+* Versal Eval platforms:
+     * VRK160, ES1 silicon : OSPI update
+     * VRK165, ES1 silicon : OSPI update
+     * VEK385, revA: OSPI update
+     * VEK385, revB: OSPI and UFS update
 * Versal OSPI update for Alveo Acelerator
      * V80
+
+
+Note that below boards are unsupported in this version due to older System Controller image and sc_app version - use V5.0 release:
+
+* VHK158, production silicon
+* VEK280, ES1, production silicon
+
+
 
 ## External Components and one time setup Required
 
@@ -87,43 +94,64 @@ Make ```prog_spi.sh``` executable:
 
 Move <boot.bin> that you want to program into OSPI onto filesystem on Ryzen/host OS Ubuntu.
 
-prog_spi.sh is used to program OSPI:
+prog_spi.sh is used to program OSPI. It can also be used to program UFS and eMMC on supported platforms.
 
 ```
-Default Usage: ./prog_spi.sh -i <path_to_boot.bin> -d <board_type>
-    -i <file>      : Bin file to write into OSPI/QSPI, can be a .bin or a gzip of the .bin file
+Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
+    -S             : target SPI memory - this is default if no -S or -U is present
+    -U             : target UFS memory. Currently only support:
+                     VEK385
+    -E             : target eMMC memory. Currently only support:
+                     Kria platforms: kria_k26, kria_k24c, kria_k24i
+    -i <file>      : Payload file to write into OSPI/QSPI/UFS
+                     if SPI - can be a .bin or a gzip of the .bin file
+                     if UFS/eMMC, have to be a gzip of the wic image
     -d <board>     : Board type.  Supported values
-		     embplus(defaults to 4616), embplus_4616, embplus_5050, embplus_5050a
-		     rhino, v80
-		     kria_k26, kria_k24c, kria_k24i
+                     embplus(defaults to 4616), embplus_4616
+		       embplus_5050, embplus_5050a
+                     rhino, v80
+                     kria_k26, kria_k24c, kria_k24i
                      versal_eval
     -b <boot_file> : Optional argument to override jtag boot.bin, for Versal only
     -s <SOCK #>    : Optional argument to specify remote uart SOCK number
-    -p             : Optional argument program SPI, this is set by default except if -v or -b is present
-    -v             : verification of flash content, if -pv are both present, tool will program and verify. if only -v is set, tool will  verify content of SPI against -i  <file> without programming
+    -p             : Optional argument program SPI, this is set by default except
+                     if -v or -b is present
+    -v             : verification of flash content, if -pv are both present,
+                     tool will program and verify. if only -v is set, tool will
+                     verify content of SPI against -i  <file> without programming
     -c             : check if flash is blank/erased
     -e             : erase flash
+    -u             : indicate for UFS programming, that the wic.gz file in -i option
+                     is in USB drive. Supported only for UFS programming
     -V             : verbose logging
-    -w             : optional argument to connect to remote hardware server, use IP address or machine name shown by hw_server (without :3121), not supported for embplus"
-    -M		   : optional argument to add memory check to make sure DDR used by script does not overlap u-boot reserved memory region
+    -M             : optional argument to add memory check to make sure DDR used
+                     by script does not overlap u-boot reserved memory region
+    -w             : optional argument to connect to remote hardware server, use
+                     IP address or machine name shown by hw_server (without :3121).
+                     not supported for embplus/rhino systems
     -h             : help
 Example usages:
-to program in verbose mode:
-     ./prog_spi.sh -i <path_to_boot.bin> -d <board_type> -V
-to program with explicit -p and in verbose mode:
-     ./prog_spi.sh -p -i -V <path_to_boot.bin> -d <board_type>
-to program and verify:
-     ./prog_spi.sh -pv -i <path_to_boot.bin> -d <board_type>
-to verify only:
-     ./prog_spi.sh -v -i <path_to_boot.bin> -d <board_type>
+to program SPI in verbose mode:
+     ./prog.sh -i <path_to_boot.bin> -d <board_type> -V
+to program SPI with explicit -p and in verbose mode:
+     ./prog.sh -p -i -V <path_to_boot.bin> -d <board_type>
+to program SPI and verify:
+     ./prog.sh -pv -i <path_to_boot.bin> -d <board_type>
+to verify SPI only:
+     ./prog.sh -v -i <path_to_boot.bin> -d <board_type>
 to check if SPI is blank:
-     ./prog_spi.sh -c -d <board_type>
-to erase:
-     ./prog_spi.sh -e -d <board_type>
+     ./prog.sh -c -d <board_type>
+to erase SPI:
+     ./prog.sh -e -d <board_type>
 to erase and check that SPI is blank:
-     ./prog_spi.sh -ec -d <board_type>
-to program a remote hw_server target in verbose mode"
-     ./prog_spi.sh -Vp -d <board_type> -i <path_to_boot.bin> -w <remote machine name or IP addr> "
+     ./prog.sh -ec -d <board_type>
+to program a remote hw_server target in verbose mode
+     ./prog.sh -Vp -d <board_type> -i <path_to_boot.bin> -w <remote machine name or IP addr> 
+to program UFS in verbose mode:
+     ./prog.sh -i <path_to_wic.gz> -d versal_eval -V -U
+to program eMMC in verbose mode:
+     ./prog.sh -i <path_to_wic.gz> -d <board_type> -V -E
+
 ```
 
 execute this command to program OSPI:
@@ -138,7 +166,7 @@ for RHINO:
 ./prog_ospi.sh -i <boot.bin> -d rhino
 ```
 
-for Kria Production SOM:
+for Kria Production SOM, to program QSPI:
 ```
 #k26c or k26i:
 ./prog_spi.sh -i <boot.bin> -d kria_k26
@@ -154,6 +182,23 @@ for VHK158/VEK280/VEK385/VRK160/VRK165, use -d versal_eval and script will autom
 ```
 
 When the script finishes (in about 4 minutes), the flash will have been updated with <boot.bin>.
+
+For eMMC and UFS programming, it is recommended to use -verbose mode to monitor progress, as wic images are much larger, downloading the .gz file and writing to memory takes on the scale of 30 minutes, depending on wic image size and JTAG connection speed.
+
+for Kria Production SOM, to program eMMC:
+```
+#k26c or k26i:
+./prog_spi.sh -i <wic.gz> -d kria_k26 -E -V
+#k24c:
+./prog_spi.sh -i <wic.gz> -d kria_k24c -E -V
+#k24i:
+./prog_spi.sh -i <wic.gz> -d kria_k24i -E -V
+```
+for VEK385, to program UFS:
+```
+./prog_spi.sh -i <wic.gz> -d versal_eval -U -V
+```
+
 
 ### Advanced users
 
@@ -244,6 +289,27 @@ The -w option is not supported for embplus platform due to the need to directly 
 
   Workaround: To avoid the I²C race condition, hold the Versal in reset until the System Controller has fully booted, it then allows programming of a new BOOT.BIN file.
   
+* in UFS/eMMC programming - incorrect size reported by `gzwrite` for images larger than 4 GiB
+
+  For gzip-compressed images with an uncompressed size larger than 4 GiB, `gzwrite` may report messages such as:
+
+  ```text
+  uncompressed 4958212096 of 663244800
+  crcs == 0xf839413b/0xf839413b
+  ```
+
+  This does **not** indicate a programming failure.
+
+  The gzip format stores the original file size in a 32-bit field (ISIZE), which contains only:
+
+  ```text
+  uncompressed_size mod 2^32
+  ```
+
+  For files larger than 4 GiB, the true uncompressed size cannot be determined from the gzip file alone. As a result, `gzwrite` may display the truncated ISIZE value (`663244800` bytes in this example) instead of the actual size (`4958212096` bytes). This is an inherent limitation of the gzip format.
+
+  `gzwrite` continues decompressing until the end of the gzip stream, so programming is not affected. The matching CRC values confirm successful decompression.
+
 
 
 # License

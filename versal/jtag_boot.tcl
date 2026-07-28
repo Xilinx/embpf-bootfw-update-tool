@@ -11,9 +11,10 @@ switch_to_jtag
 puts stderr "programming device with jtag boot files to start u-boot"
 device program [lindex $argv 0]
 plm set-log-level 0
+con
+disconnect
+
 puts stderr "Jtag boot finished, u-boot should be started"
 # below line is required for print_progress
 puts "Jtag boot finished, u-boot should be started"
-con
-disconnect
 exit
