@@ -339,10 +339,15 @@ program_spi() {
     fi
     #kria QSPI size is 0x400_0000, embplus OSPI size is 0x1000_0000
     download_ddr_addr="0x30000000"
-    zipfile_ddr_addr=$download_ddr_addr
-    binfile_ddr_addr=$download_ddr_addr
     unzipped_binfile_ddr_addr="0x20000000" #if -i has a gzip file, location to unzip to - should be minimumly size of flash
     verify_ddr_addr="0x40000000" #location to copy SPI contents to during verify/blank check. should minimumly be flash size *2
+    if [ "$device_type" == "microblaze" ]; then
+        download_ddr_addr="0x90000000"
+        unzipped_binfile_ddr_addr="0x88000000"
+        verify_ddr_addr="0xA0000000"
+    fi
+    zipfile_ddr_addr=$download_ddr_addr
+    binfile_ddr_addr=$download_ddr_addr
 
 
     if $bdi_reserved_mem_check; then
@@ -383,7 +388,7 @@ program_spi() {
 	echo "Check to see if flash is blank (step $step/$num_operations)"
 	step=$(( step + 1 ))
 	send_to_jtaguart "sf read $verify_ddr_addr 0 $flash_size_hex"
-	match_output_print_prog "term" "OK" 480 || exit 1
+	match_output_print_prog "term" "OK" 1680 || exit 1
 	send_to_jtaguart "mw.b $binfile_ddr_addr 0xff $flash_size_hex"
 	sleep 10 # wait for mw to finish 
 	# Wait for SPI DMA to finish
@@ -391,7 +396,7 @@ program_spi() {
 	send_to_jtaguart "cmp.b $spi_dma_busy_reg 10000 1; while itest \$? != 0; do sleep 1; cmp.b $spi_dma_busy_reg 10000 1; done; echo DONE"
 	match_output_print_prog "term" "^DONE" 120 || exit 1
 	send_to_jtaguart "cmp.b $verify_ddr_addr $binfile_ddr_addr $flash_size_hex"
-	match_output_print_prog "term" "were the same" 120 || exit 1
+	match_output_print_prog "term" "were the same" 480 || exit 1
 	echo "Blank check successful - flash is blank/erased"
     fi
 
@@ -574,7 +579,7 @@ usage () {
     echo "		       embplus_5050, embplus_5050a"
     echo "                     rhino, v80"
     echo "                     kria_k26, kria_k24c, kria_k24i"
-    echo "                     versal_eval"
+    echo "                     versal_eval, mbv(MicroBlaze-V)"
     echo "    -b <boot_file> : Optional argument to override jtag boot.bin, for Versal only"
     echo "    -s <SOCK #>    : Optional argument to specify remote uart SOCK number"
     echo "    -p             : Optional argument program SPI, this is set by default except"
@@ -720,6 +725,11 @@ while getopts "d:i:l:b:s:w:pvhceVMUESu" arg; do
                     scapp_support=true
                     spi_dma_busy_reg="f1011808"
                     ;;
+                 mbv)
+                    device_type=microblaze
+                    scapp_support=true
+                    spi_dma_busy_reg="0x0004091008"
+                    ;;
                 *)
                     echo
                     echo "Unknown device ${OPTARG}"
@@ -824,7 +834,12 @@ if $scapp_support; then
         exit 1
     fi
     echo "Detected board type $BOARD"
-    binfile="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin
+    if [ "$device_type" == "microblaze" ]; then
+        binfile="${SCRIPT_PATH}/bin/mbv_${BOARD}.pdi"
+        dtb_file="${SCRIPT_PATH}/bin/mbv_${BOARD}_jtag_uart.itb"
+    else
+        binfile="${SCRIPT_PATH}"/bin/BOOT_${BOARD}.bin
+    fi
     
    if [[ "${BOARD,,}" =~ vrk16 ]]; then
 	jtag_gpio="SW8"
@@ -998,6 +1013,13 @@ if $embplus_reset; then
     sleep 1
 fi
 
+if [ "$device_type" == "microblaze" ]; then
+    echo "Booting device over JTAG (step $step/$num_operations)"
+    step=$(( step + 1 ))
+    xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip"
+    sleep 20
+fi
+
 if [ $remote_uart -ne 0 ]; then
   SOCK=$remote_uart
 else
@@ -1043,10 +1065,12 @@ while IFS= read -r -t 0.1 junk <&"${COPROC[0]}"; do
     :  # Do nothing, just clear the buffer
 done
 
-step=1
-echo "Booting device over JTAG (step $step/$num_operations)"
-step=$(( step + 1 ))
-xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip"
+if [ "$device_type" != "microblaze" ]; then
+    step=1
+    echo "Booting device over JTAG (step $step/$num_operations)"
+    step=$(( step + 1 ))
+    xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip"
+fi
 
 
 sleep 2  # Wait a moment for nc to initialize
