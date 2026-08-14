@@ -149,6 +149,36 @@ check_crc_line() {
     return 0
 }
 
+
+get_uboot_crc32() {
+    local addr="$1"
+    local size="$2"
+    local line
+
+    uboot_crc=""
+
+    send_to_jtaguart "crc32 $addr $size"
+
+    while true; do
+        if ! line=$(read_line "term" 30); then
+            echo "ERROR: Timed out waiting for U-Boot CRC32 result" >&2
+            return 1
+        fi
+
+        if $verbose; then
+            echo "received on term: $line"
+        fi
+
+        # Typical U-Boot output:
+        # CRC32 for 900000000 ... 902000000 ==> 12345678
+        if [[ "$line" =~ ==\>[[:space:]]*([0-9A-Fa-f]{8}) ]]; then
+            uboot_crc="${BASH_REMATCH[1],,}"
+            return 0
+        fi
+    done
+}
+
+
 match_output_print_prog() {
   local iosource="$1"
   local match_pattern="$2"
@@ -198,6 +228,14 @@ match_output_print_prog() {
     if echo "$line" | grep -q "SF: Detected" ; then
         flash_size_print=$(echo "$line" | awk '{for(i=1;i<=NF;i++) if ($i=="total") print $(i+1)}')
         flash_size_hex=$(printf "0x%X\n" $(( $flash_size_print * 1024 * 1024 )))
+    fi
+    if [[ "$line" =~ Capacity:.*\(([0-9]+)[[:space:]]+x[[:space:]]+([0-9]+)\) ]]; then
+	ufs_num_blocks="${BASH_REMATCH[1]}"
+	ufs_block_size="${BASH_REMATCH[2]}"
+
+	if $verbose; then
+            echo "Detected UFS geometry: $ufs_num_blocks blocks x $ufs_block_size bytes"
+	fi
     fi
     if echo "$line" | grep -q ".gz"; then
 	uboot_gz_filename=$(echo "$line" | awk '{print $2}')
@@ -253,6 +291,35 @@ percentBar ()  {
 
 xsdb_cmd () {
     "$XSDB" -interactive "$@" | stdbuf -oL  tr '\r' '\n' | match_output_print_prog "xsdb" "finished" 60 || exit 1
+}
+
+generate_gzip_chunk_crcs() {
+    local gzip_file="$1"
+    local chunk_size="$2"
+
+    python3 - "$gzip_file" "$chunk_size" <<'PY'
+import gzip
+import sys
+import zlib
+
+path = sys.argv[1]
+chunk_size = int(sys.argv[2])
+
+offset = 0
+
+with gzip.open(path, "rb") as f:
+    while True:
+        data = f.read(chunk_size)
+
+        if not data:
+            break
+
+        crc = zlib.crc32(data) & 0xffffffff
+
+        print(f"{offset} {len(data)} {crc:08x}", flush=True)
+
+        offset += len(data)
+PY
 }
 
 version_ge() {
@@ -526,9 +593,13 @@ program_ufs_emmc() {
 	if $payload_in_usb; then
 	    echo "Using file from USB - file must be in USB0:1 or USB1:1, and file name must match -i input"
 	    echo "There's no error checking for presence of file in USB in this script"
+	    echo "Loading image from USB to DDR (step $step/$num_operations)"
+	    step=$(( step + 1 ))
 	    send_to_jtaguart "fatload usb $gz_in_usb:1 $download_ddr_addr $path_to_payload"
 	    match_output_print_prog "term" "bytes read" 600  || exit 1
 	    send_to_jtaguart "echo compressed file size is \${filesize}"
+	    echo "UFS/eMMC programming...this could take up to 5 minutes (step $step/$num_operations)"
+	    step=$(( step + 1 ))
 	    send_to_jtaguart "gzwrite $devta $ufs_lun_num $download_ddr_addr \${filesize} 0x100000 0"
 	else
 	    if [ "$format" != "gzip" ]; then
@@ -559,9 +630,118 @@ program_ufs_emmc() {
 	echo "$devtarget written successfully."
     fi
     
+    if $verify; then
+        if [ "$devtarget" == "UFS" ]; then
+            echo "UFS full verification (step $step/$num_operations)"
+            step=$((step + 1))
+
+            if ! verify_ufs_full; then
+                echo "ERROR: UFS verification failed"
+                cleanup
+                exit 1
+            fi
+        fi
+    fi
 }
 
 
+
+verify_ufs_full() {
+    local offset
+    local bytes
+    local expected_crc
+
+    local start_block
+    local read_blocks
+
+    local start_block_hex
+    local read_blocks_hex
+    local bytes_hex
+
+    local actual_crc
+    local chunk_num=0
+    local verified_bytes=0
+
+    echo "Starting full UFS verification"
+    echo "Verification chunk size: $((ufs_verify_chunk_size / 1024 / 1024)) MiB"
+
+    if $payload_in_usb; then
+        echo "ERROR: Full UFS verification currently requires the gzip file to be accessible on the host"
+        return 1
+    fi
+
+    while read -r offset bytes expected_crc; do
+
+        chunk_num=$((chunk_num + 1))
+
+        #
+        # gzwrite starts writing at block 0, so byte offset / 512
+        # gives us the corresponding UFS block.
+        #
+        start_block=$((offset / ufs_block_size))
+
+        #
+        # Round up for the final partial block.
+        #
+        read_blocks=$(((bytes + ufs_block_size - 1) / ufs_block_size))
+
+        start_block_hex=$(printf "0x%x" "$start_block")
+        read_blocks_hex=$(printf "0x%x" "$read_blocks")
+        bytes_hex=$(printf "0x%x" "$bytes")
+
+        echo
+        echo "Verify chunk $chunk_num"
+        echo "  UFS offset:    $start_block_hex blocks"
+        echo "  Data size:     $bytes bytes"
+        echo "  Expected CRC:  $expected_crc"
+
+        #
+        # Read this region back from UFS.
+        #
+        send_to_jtaguart \
+            "scsi read $ufs_verify_ddr_addr $start_block_hex $read_blocks_hex"
+
+        if ! match_output_print_prog "term" "blocks read: OK" 120; then
+            echo "ERROR: Failed to read UFS during verification"
+            return 1
+        fi
+
+        #
+        # CRC only the actual bytes from the gzip chunk.
+        #
+        # This matters for the last chunk if it isn't exactly 512-byte aligned.
+        #
+        if ! get_uboot_crc32 "$ufs_verify_ddr_addr" "$bytes_hex"; then
+            return 1
+        fi
+
+        actual_crc="$uboot_crc"
+
+        echo "  Actual CRC:    $actual_crc"
+
+        if [[ "${expected_crc,,}" != "${actual_crc,,}" ]]; then
+            echo
+            echo "ERROR: UFS verification failed"
+            echo "       Chunk:        $chunk_num"
+            echo "       Byte offset:  $offset"
+            echo "       Expected CRC: $expected_crc"
+            echo "       Actual CRC:   $actual_crc"
+            return 1
+        fi
+
+        verified_bytes=$((verified_bytes + bytes))
+
+        echo "  PASS"
+        echo "  Verified: $((verified_bytes / 1024 / 1024)) MiB"
+
+    done < <(generate_gzip_chunk_crcs "$path_to_payload" "$ufs_verify_chunk_size")
+
+    echo
+    echo "Full UFS verification successful"
+    echo "Verified $verified_bytes bytes"
+
+    return 0
+}
 
 
 usage () {
@@ -654,6 +834,10 @@ uboot_gz_filename=""
 uboot_gz_size=""
 ufs_lun_num=""
 gz_in_usb="0"
+# UFS verification
+ufs_verify_chunk_size=$((32 * 1024 * 1024))   # 32 MiB
+ufs_block_size=4096
+ufs_verify_ddr_addr="0x900000000"
 
 # Parse arguments
 while getopts "d:i:l:b:s:w:pvhceVMUESu" arg; do
@@ -860,8 +1044,8 @@ if ! $check_blank && ! $verify && ! $erase && ! $prog; then
     echo "Default to programming $devtarget"
 fi
 
-if [[ "$devtarget" == "UFS" ]] && { $erase || $check_blank || $verify; }; then
-    echo "ERROR: Erasing/checking/verifying UFS currently not supported"
+if [[ "$devtarget" == "UFS" ]] && { $erase || $check_blank ; }; then
+    echo "ERROR: Erasing/checking UFS currently not supported"
     cleanup
     exit 1
 fi
