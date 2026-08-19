@@ -435,7 +435,9 @@ program_spi() {
     if $erase; then
 	echo "Erase Flash (step $step/$num_operations)"
 	step=$(( step + 1 ))
-	send_to_jtaguart "sf erase 0 $flash_size_hex"
+	spi_erase_size=$((flash_size_hex - spi_prog_addr))
+	spi_erase_size_hex=$(printf "0x%X" "$spi_erase_size")
+	send_to_jtaguart "sf erase $spi_prog_addr $spi_erase_size_hex"
 	match_output_print_prog "term" "Erased: OK" 240 || exit 1
 	echo "Erase successful - flash is now erased"
     fi
@@ -443,7 +445,9 @@ program_spi() {
     if $check_blank; then
 	echo "Check to see if flash is blank (step $step/$num_operations)"
 	step=$(( step + 1 ))
-	send_to_jtaguart "sf read $verify_ddr_addr 0 $flash_size_hex"
+	spi_erase_size=$((flash_size_hex - spi_prog_addr))
+	spi_erase_size_hex=$(printf "0x%X" "$spi_erase_size")
+	send_to_jtaguart "sf read $verify_ddr_addr $spi_prog_addr $spi_erase_size_hex"
 	match_output_print_prog "term" "OK" 1680 || exit 1
 	send_to_jtaguart "mw.b $binfile_ddr_addr 0xff $flash_size_hex"
 	sleep 10 # wait for mw to finish 
@@ -461,7 +465,7 @@ program_spi() {
 	echo "SPI Erasing and programming...this could take up to 5 minutes (step $step/$num_operations)"
 	step=$(( step + 1 ))
 	
-	send_to_jtaguart "sf update $binfile_ddr_addr 0x0 $uncompressed_size_hex"
+	send_to_jtaguart "sf update $binfile_ddr_addr $spi_prog_addr $uncompressed_size_hex"
 	match_output_print_prog "term" "written" 20  || exit 1
 	echo "SPI written successfully."
     fi
@@ -469,7 +473,7 @@ program_spi() {
     if $verify; then
 	echo "Verifying (step $step/$num_operations)"
 	step=$(( step + 1 ))
-	send_to_jtaguart "sf read $verify_ddr_addr 0x0 $uncompressed_size_hex"
+	send_to_jtaguart "sf read $verify_ddr_addr $spi_prog_addr $uncompressed_size_hex"
 	match_output_print_prog "term" "OK" 480 || exit 1
 	# Wait for SPI DMA to finish
 	send_to_jtaguart "mw 10000 00 1"
@@ -752,6 +756,8 @@ usage () {
     echo "    -s <SOCK #>    : Optional argument to specify remote uart SOCK number"
     echo "    -p             : Optional argument program SPI, this is set by default except"
     echo "                     if -v or -b is present"
+    echo "    -a             : Optional argument for address of start of SPI programming in hex"
+    echo "                     this is default 0x0"
     echo "    -v             : verification of flash content, if -pv are both present,"
     echo "                     tool will program and verify. if only -v is set, tool will"
     echo "                     verify content of SPI against -i  <file> without programming"
@@ -887,9 +893,10 @@ gz_in_usb="0"
 verify_chunk_size=$((32 * 1024 * 1024))   # 32 MiB
 ufs_block_size=4096
 emmc_block_size=512
+spi_prog_addr="0x0"
 
 # Parse arguments
-while getopts "d:i:l:b:s:w:pvhceVMNUESu" arg; do
+while getopts "d:i:a:l:b:s:w:pvhceVMNUESu" arg; do
     case "$arg" in
 	S)
 	    devtarget="SPI"
@@ -991,6 +998,14 @@ while getopts "d:i:l:b:s:w:pvhceVMNUESu" arg; do
 	    if [ "$devtarget" = "SPI" ]; then
 		echo "ERROR: LUNs input not supported for SPI programming"
 		usage
+	    fi
+	    ;;
+	a)
+	    spi_prog_addr="${OPTARG}"
+	    if ! [[ "$spi_prog_addr" =~ ^0[xX][0-9a-fA-F]+$|^[0-9]+$ ]]; then
+		echo "ERROR: Invalid OSPI programming address: $spi_prog_addr"
+		cleanup
+		exit 1
 	    fi
 	    ;;
         i)
