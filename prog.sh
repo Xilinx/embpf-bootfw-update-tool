@@ -394,6 +394,8 @@ detect_board() {
     # other eval boards - silicon rev matters
     if [[ "${boardid,,}" =~ vek385 ]]; then
 	boardid="${boardid}_rev${board_rev:0:1}"
+    elif [[ "${boardid,,}" =~ scu200 ]]; then
+	boardid="${boardid}_${silicon_rev}_rev${board_rev:0:1}"
     else 
 	if [ "$silicon_rev" != "PROD" ]; then
             boardid="${boardid}_${silicon_rev}"
@@ -434,7 +436,7 @@ program_spi() {
 	echo "Erase Flash (step $step/$num_operations)"
 	step=$(( step + 1 ))
 	send_to_jtaguart "sf erase 0 $flash_size_hex"
-	match_output_print_prog "term" "OK" 240 || exit 1
+	match_output_print_prog "term" "Erased: OK" 240 || exit 1
 	echo "Erase successful - flash is now erased"
     fi
 
