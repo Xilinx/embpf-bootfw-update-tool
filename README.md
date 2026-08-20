@@ -1,6 +1,6 @@
 # Embedded Platform Flash Update Tool
 
-## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V6.0 release.
+## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V7.0 release.
 
 This repository provides a utility to update AMD ACAP's (Adaptive Compute Acceleration Platform aka Adaptive SoC) flash device (OSPI, QSPI, UFS or eMMC) with boot firmware or disk image in supported platforms. The current supported platforms are:
 
@@ -11,10 +11,14 @@ This repository provides a utility to update AMD ACAP's (Adaptive Compute Accele
    * Rhino Versal OSPI update
 * Kria production SOM QSPI and eMMC update (K26, K24c, K24i)
 * Versal Eval platforms:
-     * VRK160, ES1 silicon : OSPI update
-     * VRK165, ES1 silicon : OSPI update
+     * VRK160 : OSPI update
+     * VRK165 : OSPI update
      * VEK385, revA: OSPI update
      * VEK385, revB: OSPI and UFS update
+     * VEK386, OSPI and UFS update
+     * VPK360, OSPI update
+* Spartan UltraScale+
+     * SCU200
 * Versal OSPI update for Alveo Acelerator
      * V80
 
@@ -111,11 +115,13 @@ Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
 		       embplus_5050, embplus_5050a
                      rhino, v80
                      kria_k26, kria_k24c, kria_k24i
-                     versal_eval
+                     versal_eval, mbv(MicroBlaze-V)
     -b <boot_file> : Optional argument to override jtag boot.bin, for Versal only
     -s <SOCK #>    : Optional argument to specify remote uart SOCK number
     -p             : Optional argument program SPI, this is set by default except
                      if -v or -b is present
+    -a             : Optional argument for address of start of SPI programming in hex
+                     this is default 0x0
     -v             : verification of flash content, if -pv are both present,
                      tool will program and verify. if only -v is set, tool will
                      verify content of SPI against -i  <file> without programming
@@ -124,7 +130,8 @@ Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
     -u             : indicate for UFS programming, that the wic.gz file in -i option
                      is in USB drive. Supported only for UFS programming
     -V             : verbose logging
-    -M             : optional argument to add memory check to make sure DDR used
+    -M             : optional argument to add memory check to make sure DDR used - in 7.0 release this is default
+    -N             : optional argument to remove memory check that make sure DDR used
                      by script does not overlap u-boot reserved memory region
     -w             : optional argument to connect to remote hardware server, use
                      IP address or machine name shown by hw_server (without :3121).
@@ -145,13 +152,14 @@ to erase SPI:
      ./prog.sh -e -d <board_type>
 to erase and check that SPI is blank:
      ./prog.sh -ec -d <board_type>
+to program SPI and verify on MicroblazeV based board (scu200) and program starting addr 0xA0000 instead of 0x0:
+     ./prog.sh -pv -i <path_to_binary> -d mbv -a 0xA0000
 to program a remote hw_server target in verbose mode
      ./prog.sh -Vp -d <board_type> -i <path_to_boot.bin> -w <remote machine name or IP addr> 
 to program UFS in verbose mode:
-     ./prog.sh -i <path_to_wic.gz> -d versal_eval -V -U
+     ./prog.sh -i <path_to_boot.bin> -d versal_eval -V -U
 to program eMMC in verbose mode:
-     ./prog.sh -i <path_to_wic.gz> -d <board_type> -V -E
-
+     ./prog.sh -i <path_to_boot.bin> -d <board_type> -V -E
 ```
 
 execute this command to program OSPI:
@@ -176,9 +184,14 @@ for Kria Production SOM, to program QSPI:
 ./prog_spi.sh -i <boot.bin> -d kria_k24i
 ```
 
-for VHK158/VEK280/VEK385/VRK160/VRK165, use -d versal_eval and script will automatically check if it is running on one of the supported systems:
+for VHK158/VEK280/VEK385/VRK160/VRK165/VEK386/VPK360, use -d versal_eval and script will automatically check if it is running on one of the supported systems:
 ```
 ./prog_spi.sh -i <boot.bin> -d versal_eval
+```
+
+for SCU200, use -d mbv and MicroBlaze based system may require starting address to be something other than 0x0 (such as 0xA0000):
+```
+./prog_spi.sh -i <boot.bin> -d mbv -a 0xA0000
 ```
 
 When the script finishes (in about 4 minutes), the flash will have been updated with <boot.bin>.

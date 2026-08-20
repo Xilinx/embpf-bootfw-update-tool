@@ -9,7 +9,7 @@
 #
 #**********************************************************************
 
-echo "Version 6.0"
+echo "Version 7.0"
 
 cleanup(){
     kill "${COPROC_PID}" 2>/dev/null
@@ -438,7 +438,7 @@ program_spi() {
 	spi_erase_size=$((flash_size_hex - spi_prog_addr))
 	spi_erase_size_hex=$(printf "0x%X" "$spi_erase_size")
 	send_to_jtaguart "sf erase $spi_prog_addr $spi_erase_size_hex"
-	match_output_print_prog "term" "Erased: OK" 240 || exit 1
+	match_output_print_prog "term" "Erased: OK" 360 || exit 1
 	echo "Erase successful - flash is now erased"
     fi
 
@@ -789,6 +789,8 @@ usage () {
     echo "     $0 -e -d <board_type>"
     echo "to erase and check that SPI is blank:"
     echo "     $0 -ec -d <board_type>"
+    echo "to program SPI and verify on MicroblazeV based board (scu200) and program starting addr 0xA0000 instead of 0x0:"
+    echo "     $0 -pv -i <path_to_binary> -d mbv -a 0xA0000"
     echo "to program a remote hw_server target in verbose mode"
     echo "     $0 -Vp -d <board_type> -i <path_to_boot.bin> -w <remote machine name or IP addr> "
     echo "to program UFS in verbose mode:"
@@ -1199,7 +1201,7 @@ fi
 # Check if the bootbin file has been copied over
 if [ ! -f "$binfile" ]; then
    echo "File "$binfile" does not exist, auto downloading bin.zip"
-   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v6.0/bin.zip
+   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v7.0/bin.zip
    unzip -o bin.zip -d "${SCRIPT_PATH}"
    if [ ! -f "$binfile" ]; then
        if $b_flag_set; then
