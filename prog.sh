@@ -9,7 +9,7 @@
 #
 #**********************************************************************
 
-echo "Version 6.0"
+echo "Version 7.0"
 
 cleanup(){
     kill "${COPROC_PID}" 2>/dev/null
@@ -237,6 +237,16 @@ match_output_print_prog() {
             echo "Detected UFS geometry: $ufs_num_blocks blocks x $ufs_block_size bytes"
 	fi
     fi
+
+    
+    if [[ "$line" =~ Rd[[:space:]]+Block[[:space:]]+Len:[[:space:]]*([0-9]+) ]]; then
+	emmc_block_size="${BASH_REMATCH[1]}"
+
+	if $verbose; then
+            echo "Detected eMMC block size: $emmc_block_size bytes"
+	fi
+    fi
+
     if echo "$line" | grep -q ".gz"; then
 	uboot_gz_filename=$(echo "$line" | awk '{print $2}')
 	uboot_gz_size=$(echo "$line" | awk '{print $1}')
@@ -384,6 +394,8 @@ detect_board() {
     # other eval boards - silicon rev matters
     if [[ "${boardid,,}" =~ vek385 ]]; then
 	boardid="${boardid}_rev${board_rev:0:1}"
+    elif [[ "${boardid,,}" =~ scu200 ]]; then
+	boardid="${boardid}_${silicon_rev}_rev${board_rev:0:1}"
     else 
 	if [ "$silicon_rev" != "PROD" ]; then
             boardid="${boardid}_${silicon_rev}"
@@ -400,37 +412,14 @@ detect_board() {
 program_spi() {
     send_to_jtaguart "sf probe 0x0 0x0 0x0"
     match_output_print_prog "term" "SF: Detected" 10 || exit 1
-
+    
     if $verbose; then
 	echo "Flash size is $flash_size_hex"
     fi
-    #kria QSPI size is 0x400_0000, embplus OSPI size is 0x1000_0000
-    download_ddr_addr="0x30000000"
-    unzipped_binfile_ddr_addr="0x20000000" #if -i has a gzip file, location to unzip to - should be minimumly size of flash
-    verify_ddr_addr="0x40000000" #location to copy SPI contents to during verify/blank check. should minimumly be flash size *2
-    if [ "$device_type" == "microblaze" ]; then
-        download_ddr_addr="0x90000000"
-        unzipped_binfile_ddr_addr="0x88000000"
-        verify_ddr_addr="0xA0000000"
-    fi
-    zipfile_ddr_addr=$download_ddr_addr
-    binfile_ddr_addr=$download_ddr_addr
 
-
-    if $bdi_reserved_mem_check; then
-	echo "Checking DDR work areas against U-Boot reserved ranges..."
-	if ! bdi_guard_check \
-             "$download_ddr_addr" "$unzipped_binfile_ddr_addr" "$verify_ddr_addr" \
-             "$flash_size_hex"
-	then
-            echo "DDR overlap check failed. Refusing to proceed to protect reserved memory."
-            cleanup
-            exit 1
-	fi
-	echo "DDR overlap check passed."
-    fi
-
-
+    #need to wait for SF:detectected to determine flase_size_hex
+    set_ddr_work_addresses "$flash_size_hex"
+    
     if $verify || $prog; then
 	echo "Downloading flash image to DDR (step $step/$num_operations)"
 	step=$(( step + 1 ))
@@ -446,15 +435,19 @@ program_spi() {
     if $erase; then
 	echo "Erase Flash (step $step/$num_operations)"
 	step=$(( step + 1 ))
-	send_to_jtaguart "sf erase 0 $flash_size_hex"
-	match_output_print_prog "term" "OK" 240 || exit 1
+	spi_erase_size=$((flash_size_hex - spi_prog_addr))
+	spi_erase_size_hex=$(printf "0x%X" "$spi_erase_size")
+	send_to_jtaguart "sf erase $spi_prog_addr $spi_erase_size_hex"
+	match_output_print_prog "term" "Erased: OK" 360 || exit 1
 	echo "Erase successful - flash is now erased"
     fi
 
     if $check_blank; then
 	echo "Check to see if flash is blank (step $step/$num_operations)"
 	step=$(( step + 1 ))
-	send_to_jtaguart "sf read $verify_ddr_addr 0 $flash_size_hex"
+	spi_erase_size=$((flash_size_hex - spi_prog_addr))
+	spi_erase_size_hex=$(printf "0x%X" "$spi_erase_size")
+	send_to_jtaguart "sf read $verify_ddr_addr $spi_prog_addr $spi_erase_size_hex"
 	match_output_print_prog "term" "OK" 1680 || exit 1
 	send_to_jtaguart "mw.b $binfile_ddr_addr 0xff $flash_size_hex"
 	sleep 10 # wait for mw to finish 
@@ -472,7 +465,7 @@ program_spi() {
 	echo "SPI Erasing and programming...this could take up to 5 minutes (step $step/$num_operations)"
 	step=$(( step + 1 ))
 	
-	send_to_jtaguart "sf update $binfile_ddr_addr 0x0 $uncompressed_size_hex"
+	send_to_jtaguart "sf update $binfile_ddr_addr $spi_prog_addr $uncompressed_size_hex"
 	match_output_print_prog "term" "written" 20  || exit 1
 	echo "SPI written successfully."
     fi
@@ -480,7 +473,7 @@ program_spi() {
     if $verify; then
 	echo "Verifying (step $step/$num_operations)"
 	step=$(( step + 1 ))
-	send_to_jtaguart "sf read $verify_ddr_addr 0x0 $uncompressed_size_hex"
+	send_to_jtaguart "sf read $verify_ddr_addr $spi_prog_addr $uncompressed_size_hex"
 	match_output_print_prog "term" "OK" 480 || exit 1
 	# Wait for SPI DMA to finish
 	send_to_jtaguart "mw 10000 00 1"
@@ -540,19 +533,19 @@ prep_ufs() {
     fi
 
     send_to_jtaguart "scsi dev $ufs_lun_num"
-    download_ddr_addr="0x900000000" 
 
 }
 
 prep_emmc() {
     send_to_jtaguart "mmc dev 0 0"
     send_to_jtaguart "mmc rescan"
-    download_ddr_addr="0x30000000" 
-
+    send_to_jtaguart "mmc info"
+    match_output_print_prog  "term" "Rd" 10  || exit 1
 }
 end_ufs() {
     send_to_jtaguart "scsi scan"
     send_to_jtaguart "part list scsi 0"
+    match_output_print_prog  "term" "Capacity" 10  || exit 1    
 }
 
 program_ufs_emmc() {
@@ -576,19 +569,9 @@ program_ufs_emmc() {
 	compressed_size_hex=$(printf "0x%08x" $compressed_size)
     fi
 
-    if $bdi_reserved_mem_check; then	
-	echo "Checking DDR work areas against U-Boot reserved ranges..."
-	if ! bdi_guard_check \
-             "$download_ddr_addr" "$download_ddr_addr" "$download_ddr_addr" \
-             "$compressed_size"
-	then
-            echo "ERROR: DDR overlap check failed. Refusing to proceed to protect reserved memory."
-            cleanup
-            exit 1
-	fi
-	echo "DDR overlap check passed."
-    fi
-
+    #compressed_size_hex determined by now
+    set_ddr_work_addresses "$compressed_size_hex"
+    
     if $prog; then
 	if $payload_in_usb; then
 	    echo "Using file from USB - file must be in USB0:1 or USB1:1, and file name must match -i input"
@@ -631,22 +614,30 @@ program_ufs_emmc() {
     fi
     
     if $verify; then
+        echo "$devtarget full verification (step $step/$num_operations)"
+        step=$((step + 1))
         if [ "$devtarget" == "UFS" ]; then
-            echo "UFS full verification (step $step/$num_operations)"
-            step=$((step + 1))
-
-            if ! verify_ufs_full; then
+            if ! verify_storage_full "scsi" "$ufs_block_size"; then
                 echo "ERROR: UFS verification failed"
                 cleanup
                 exit 1
             fi
-        fi
+        elif [ "$devtarget" == "EMMC" ]; then
+            if ! verify_storage_full "mmc" "$emmc_block_size"; then
+                echo "ERROR: eMMC verification failed"
+                cleanup
+                exit 1
+            fi
+	fi
     fi
 }
 
 
 
-verify_ufs_full() {
+verify_storage_full() {
+    local command="$1"
+    local blk_size="$2"
+
     local offset
     local bytes
     local expected_crc
@@ -661,12 +652,13 @@ verify_ufs_full() {
     local actual_crc
     local chunk_num=0
     local verified_bytes=0
+    
 
-    echo "Starting full UFS verification"
-    echo "Verification chunk size: $((ufs_verify_chunk_size / 1024 / 1024)) MiB"
+    echo "Starting full $devtarget verification"
+    echo "Verification chunk size: $((verify_chunk_size / 1024 / 1024)) MiB"
 
     if $payload_in_usb; then
-        echo "ERROR: Full UFS verification currently requires the gzip file to be accessible on the host"
+        echo "ERROR: Full $devtarget verification currently requires the gzip file to be accessible on the host"
         return 1
     fi
 
@@ -678,12 +670,12 @@ verify_ufs_full() {
         # gzwrite starts writing at block 0, so byte offset / 512
         # gives us the corresponding UFS block.
         #
-        start_block=$((offset / ufs_block_size))
+        start_block=$((offset / blk_size))
 
         #
         # Round up for the final partial block.
         #
-        read_blocks=$(((bytes + ufs_block_size - 1) / ufs_block_size))
+        read_blocks=$(((bytes + blk_size - 1) / blk_size))
 
         start_block_hex=$(printf "0x%x" "$start_block")
         read_blocks_hex=$(printf "0x%x" "$read_blocks")
@@ -691,7 +683,7 @@ verify_ufs_full() {
 
         echo
         echo "Verify chunk $chunk_num"
-        echo "  UFS offset:    $start_block_hex blocks"
+        echo "  $devtarget offset:    $start_block_hex blocks"
         echo "  Data size:     $bytes bytes"
         echo "  Expected CRC:  $expected_crc"
 
@@ -699,10 +691,10 @@ verify_ufs_full() {
         # Read this region back from UFS.
         #
         send_to_jtaguart \
-            "scsi read $ufs_verify_ddr_addr $start_block_hex $read_blocks_hex"
+            "$command read $verify_ddr_addr $start_block_hex $read_blocks_hex"
 
         if ! match_output_print_prog "term" "blocks read: OK" 120; then
-            echo "ERROR: Failed to read UFS during verification"
+            echo "ERROR: Failed to read $devtarget during verification"
             return 1
         fi
 
@@ -711,7 +703,7 @@ verify_ufs_full() {
         #
         # This matters for the last chunk if it isn't exactly 512-byte aligned.
         #
-        if ! get_uboot_crc32 "$ufs_verify_ddr_addr" "$bytes_hex"; then
+        if ! get_uboot_crc32 "$verify_ddr_addr" "$bytes_hex"; then
             return 1
         fi
 
@@ -721,7 +713,7 @@ verify_ufs_full() {
 
         if [[ "${expected_crc,,}" != "${actual_crc,,}" ]]; then
             echo
-            echo "ERROR: UFS verification failed"
+            echo "ERROR: $devtarget verification failed"
             echo "       Chunk:        $chunk_num"
             echo "       Byte offset:  $offset"
             echo "       Expected CRC: $expected_crc"
@@ -734,10 +726,10 @@ verify_ufs_full() {
         echo "  PASS"
         echo "  Verified: $((verified_bytes / 1024 / 1024)) MiB"
 
-    done < <(generate_gzip_chunk_crcs "$path_to_payload" "$ufs_verify_chunk_size")
+    done < <(generate_gzip_chunk_crcs "$path_to_payload" "$verify_chunk_size")
 
     echo
-    echo "Full UFS verification successful"
+    echo "Full $devtarget verification successful"
     echo "Verified $verified_bytes bytes"
 
     return 0
@@ -764,6 +756,8 @@ usage () {
     echo "    -s <SOCK #>    : Optional argument to specify remote uart SOCK number"
     echo "    -p             : Optional argument program SPI, this is set by default except"
     echo "                     if -v or -b is present"
+    echo "    -a             : Optional argument for address of start of SPI programming in hex"
+    echo "                     this is default 0x0"
     echo "    -v             : verification of flash content, if -pv are both present,"
     echo "                     tool will program and verify. if only -v is set, tool will"
     echo "                     verify content of SPI against -i  <file> without programming"
@@ -772,7 +766,9 @@ usage () {
     echo "    -u             : indicate for UFS programming, that the wic.gz file in -i option"
     echo "                     is in USB drive. Supported only for UFS programming"
     echo "    -V             : verbose logging"
-    echo "    -M             : optional argument to add memory check to make sure DDR used"
+    echo "    -M             : optional argument to add memory check to make sure DDR used - in 7.0 release this is default"
+    echo "    -N             : optional argument to remove memory check that make sure DDR used"
+
     echo "                     by script does not overlap u-boot reserved memory region"
     echo "    -w             : optional argument to connect to remote hardware server, use"
     echo "                     IP address or machine name shown by hw_server (without :3121)."
@@ -793,6 +789,8 @@ usage () {
     echo "     $0 -e -d <board_type>"
     echo "to erase and check that SPI is blank:"
     echo "     $0 -ec -d <board_type>"
+    echo "to program SPI and verify on MicroblazeV based board (scu200) and program starting addr 0xA0000 instead of 0x0:"
+    echo "     $0 -pv -i <path_to_binary> -d mbv -a 0xA0000"
     echo "to program a remote hw_server target in verbose mode"
     echo "     $0 -Vp -d <board_type> -i <path_to_boot.bin> -w <remote machine name or IP addr> "
     echo "to program UFS in verbose mode:"
@@ -801,6 +799,65 @@ usage () {
     echo "     $0 -i <path_to_boot.bin> -d <board_type> -V -E"
  
     exit 1
+}
+
+
+set_ddr_work_addresses() {
+    local size="$1"
+    if [[ -z "$size" || "$size" -eq 0 ]]; then
+        echo "ERROR: set_ddr_work_addresses called with invalid size: '$size'"
+        cleanup
+        exit 1
+    fi
+    
+    case "$devtarget" in
+        SPI)
+	    #kria QSPI size is 0x400_0000, embplus OSPI size is 0x1000_0000
+            download_ddr_addr="0x30000000"
+            unzipped_binfile_ddr_addr="0x20000000"
+            verify_ddr_addr="0x40000000"
+	    if [ "$device_type" == "microblaze" ]; then
+		download_ddr_addr="0x90000000"
+		unzipped_binfile_ddr_addr="0x88000000"
+		verify_ddr_addr="0xA0000000"
+	    fi
+	    zipfile_ddr_addr=$download_ddr_addr
+	    binfile_ddr_addr=$download_ddr_addr
+            ;;
+
+        EMMC) #for Kria only
+            download_ddr_addr="0x30000000"
+            verify_ddr_addr=$download_ddr_addr
+	    unzipped_binfile_ddr_addr=$download_ddr_addr
+            ;;
+
+        UFS) #for Versal gen2 only
+            download_ddr_addr="0x900000000"
+            verify_ddr_addr=$download_ddr_addr
+	    unzipped_binfile_ddr_addr=$download_ddr_addr
+            ;;
+
+        *)
+            echo "ERROR: Unknown device target $devtarget"
+            cleanup
+            exit 1
+            ;;
+    esac
+
+    if $bdi_reserved_mem_check; then
+	echo "Checking DDR work areas against U-Boot reserved ranges: $download_ddr_addr, $unzipped_binfile_ddr_addr, $verify_ddr_addr, size: $size"
+	if ! bdi_guard_check \
+	     "$download_ddr_addr" "$unzipped_binfile_ddr_addr" "$verify_ddr_addr" \
+	     "$flash_size_hex"
+	then
+	    echo "DDR overlap check failed. Refusing to proceed to protect reserved memory."
+	    cleanup
+	    exit 1
+	fi
+	echo "DDR overlap check passed."
+    fi
+
+    
 }
 
 
@@ -828,19 +885,20 @@ spi_dma_busy_reg=""
 remote_ip=""
 sc_app_ver=""
 jtag_gpio="SW3"
-bdi_reserved_mem_check=false
+bdi_reserved_mem_check=true
 payload_in_usb=false
 uboot_gz_filename=""
 uboot_gz_size=""
 ufs_lun_num=""
 gz_in_usb="0"
 # UFS verification
-ufs_verify_chunk_size=$((32 * 1024 * 1024))   # 32 MiB
+verify_chunk_size=$((32 * 1024 * 1024))   # 32 MiB
 ufs_block_size=4096
-ufs_verify_ddr_addr="0x900000000"
+emmc_block_size=512
+spi_prog_addr="0x0"
 
 # Parse arguments
-while getopts "d:i:l:b:s:w:pvhceVMUESu" arg; do
+while getopts "d:i:a:l:b:s:w:pvhceVMNUESu" arg; do
     case "$arg" in
 	S)
 	    devtarget="SPI"
@@ -944,6 +1002,14 @@ while getopts "d:i:l:b:s:w:pvhceVMUESu" arg; do
 		usage
 	    fi
 	    ;;
+	a)
+	    spi_prog_addr="${OPTARG}"
+	    if ! [[ "$spi_prog_addr" =~ ^0[xX][0-9a-fA-F]+$|^[0-9]+$ ]]; then
+		echo "ERROR: Invalid OSPI programming address: $spi_prog_addr"
+		cleanup
+		exit 1
+	    fi
+	    ;;
         i)
             i_flag_set=true
             path_to_payload="${OPTARG}"
@@ -969,13 +1035,9 @@ while getopts "d:i:l:b:s:w:pvhceVMUESu" arg; do
             ;;
 	M)
 	    bdi_reserved_mem_check=true
-	    
-	    if [ -f "${SCRIPT_PATH}/ddr_reserved_mem_check.sh" ]; then
-		. "${SCRIPT_PATH}/ddr_reserved_mem_check.sh"
-	    else
-		echo "Error: ddr_reserved_mem_check.sh not found"
-		exit 1
-	    fi
+	    ;;
+	N)
+	    bdi_reserved_mem_check=false
 	    ;;
         *)
             echo "Unknown argument $OPTARG"
@@ -983,6 +1045,15 @@ while getopts "d:i:l:b:s:w:pvhceVMUESu" arg; do
             ;;
     esac
 done
+
+if $bdi_reserved_mem_check; then
+   if [ -f "${SCRIPT_PATH}/ddr_reserved_mem_check.sh" ]; then
+       . "${SCRIPT_PATH}/ddr_reserved_mem_check.sh"
+   else
+       echo "Error: ddr_reserved_mem_check.sh not found"
+       exit 1
+   fi
+fi
 
 if $i_flag_set; then
     if [ ! -e "$path_to_payload" ] && [ "$payload_in_usb" = false ]; then
@@ -1087,6 +1158,9 @@ fi
 if $check_blank; then
         echo "Operation check if $devtarget is blank enabled"
 fi
+if $payload_in_usb; then
+    echo "Payload in USB"
+fi
 
 if $b_flag_set; then
     binfile=$overwrite_binfile
@@ -1127,7 +1201,7 @@ fi
 # Check if the bootbin file has been copied over
 if [ ! -f "$binfile" ]; then
    echo "File "$binfile" does not exist, auto downloading bin.zip"
-   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v6.0/bin.zip
+   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v7.0/bin.zip
    unzip -o bin.zip -d "${SCRIPT_PATH}"
    if [ ! -f "$binfile" ]; then
        if $b_flag_set; then
