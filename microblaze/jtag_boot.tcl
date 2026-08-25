@@ -21,8 +21,9 @@ after 2000
 puts stderr "INFO: Selecting MicroBlaze-V Hart target"
 targets -set -nocase -filter {name =~ "Hart*" && parent =~ "*USER2*"} -timeout 10
 
-puts stderr "INFO: Downloading FIT image to DDR at 0x80200000"
-dow -data [lindex $argv 1] 0x80200000
+puts stderr "INFO: Downloading FIT image to DDR"
+puts stderr  [lindex $argv 3]
+dow -data [lindex $argv 1] [lindex $argv 3]
 after 1000
 
 puts stderr "INFO: Downloading SPL to BRAM at 0x00000000"

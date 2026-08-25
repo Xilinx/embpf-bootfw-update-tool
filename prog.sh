@@ -816,10 +816,14 @@ set_ddr_work_addresses() {
             download_ddr_addr="0x30000000"
             unzipped_binfile_ddr_addr="0x20000000"
             verify_ddr_addr="0x40000000"
-	    if [ "$device_type" == "microblaze" ]; then
+	    if [ "$BOARD" == "scu200_es1_reva" ]; then
 		download_ddr_addr="0x90000000"
 		unzipped_binfile_ddr_addr="0x88000000"
 		verify_ddr_addr="0xA0000000"
+	    elif [ "$BOARD" == "scu200_es1_revb" ]; then
+		download_ddr_addr="0x110000000"
+		unzipped_binfile_ddr_addr="0x108000000"
+		verify_ddr_addr="0x120000000"
 	    fi
 	    zipfile_ddr_addr=$download_ddr_addr
 	    binfile_ddr_addr=$download_ddr_addr
@@ -1274,7 +1278,15 @@ fi
 if [ "$device_type" == "microblaze" ]; then
     echo "Booting device over JTAG (step $step/$num_operations)"
     step=$(( step + 1 ))
-    xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip"
+    if [ "$BOARD" == "scu200_es1_reva" ]; then
+	xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip" "0x80200000"
+    elif [ "$BOARD" == "scu200_es1_revb" ]; then
+	xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip" "0x100200000"
+    else
+        echo "Error: unsupported Microblaze based target $BOARD"
+	cleanup
+        exit 1	
+    fi
     sleep 20
 fi
 
@@ -1328,10 +1340,9 @@ if [ "$device_type" != "microblaze" ]; then
     echo "Booting device over JTAG (step $step/$num_operations)"
     step=$(( step + 1 ))
     xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip"
+    sleep 2  # Wait a moment for nc to initialize
 fi
 
-
-sleep 2  # Wait a moment for nc to initialize
 
 # have to "flush" the uart or first command wont send correctly to u-boot on some platforms
 send_to_jtaguart " "
