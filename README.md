@@ -1,6 +1,6 @@
 # Embedded Platform Flash Update Tool
 
-## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V7.0 release.
+## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V7.1 release.
 
 This repository provides a utility to update AMD ACAP's (Adaptive Compute Acceleration Platform aka Adaptive SoC) flash device (OSPI, QSPI, UFS or eMMC) with boot firmware or disk image in supported platforms. The current supported platforms are:
 
@@ -130,7 +130,7 @@ Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
     -u             : indicate for UFS programming, that the wic.gz file in -i option
                      is in USB drive. Supported only for UFS programming
     -V             : verbose logging
-    -M             : optional argument to add memory check to make sure DDR used - in 7.0 release this is default
+    -M             : optional argument to add memory check to make sure DDR used - in 7.0 and newer release this is default
     -N             : optional argument to remove memory check that make sure DDR used
                      by script does not overlap u-boot reserved memory region
     -w             : optional argument to connect to remote hardware server, use

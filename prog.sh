@@ -9,7 +9,7 @@
 #
 #**********************************************************************
 
-echo "Version 7.0"
+echo "Version 7.1"
 
 cleanup(){
     kill "${COPROC_PID}" 2>/dev/null
@@ -766,7 +766,7 @@ usage () {
     echo "    -u             : indicate for UFS programming, that the wic.gz file in -i option"
     echo "                     is in USB drive. Supported only for UFS programming"
     echo "    -V             : verbose logging"
-    echo "    -M             : optional argument to add memory check to make sure DDR used - in 7.0 release this is default"
+    echo "    -M             : optional argument to add memory check to make sure DDR used - in 7.0 release and newer this is default"
     echo "    -N             : optional argument to remove memory check that make sure DDR used"
 
     echo "                     by script does not overlap u-boot reserved memory region"
@@ -1205,7 +1205,7 @@ fi
 # Check if the bootbin file has been copied over
 if [ ! -f "$binfile" ]; then
    echo "File "$binfile" does not exist, auto downloading bin.zip"
-   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v7.0/bin.zip
+   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v7.1/bin.zip
    unzip -o bin.zip -d "${SCRIPT_PATH}"
    if [ ! -f "$binfile" ]; then
        if $b_flag_set; then
