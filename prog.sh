@@ -9,7 +9,7 @@
 #
 #**********************************************************************
 
-echo "Version 7.1"
+echo "Version 7.2"
 
 cleanup(){
     kill "${COPROC_PID}" 2>/dev/null
@@ -392,10 +392,8 @@ detect_board() {
 
     # VEK385 - ignore silicon rev. board rev matters
     # other eval boards - silicon rev matters
-    if [[ "${boardid,,}" =~ vek385 ]]; then
+    if [[ "${boardid,,}" =~ vek385|scu200 ]]; then
 	boardid="${boardid}_rev${board_rev:0:1}"
-    elif [[ "${boardid,,}" =~ scu200 ]]; then
-	boardid="${boardid}_${silicon_rev}_rev${board_rev:0:1}"
     else 
 	if [ "$silicon_rev" != "PROD" ]; then
             boardid="${boardid}_${silicon_rev}"
@@ -1205,7 +1203,7 @@ fi
 # Check if the bootbin file has been copied over
 if [ ! -f "$binfile" ]; then
    echo "File "$binfile" does not exist, auto downloading bin.zip"
-   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v7.1/bin.zip
+   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v7.2/bin.zip
    unzip -o bin.zip -d "${SCRIPT_PATH}"
    if [ ! -f "$binfile" ]; then
        if $b_flag_set; then
@@ -1278,9 +1276,9 @@ fi
 if [ "$device_type" == "microblaze" ]; then
     echo "Booting device over JTAG (step $step/$num_operations)"
     step=$(( step + 1 ))
-    if [ "$BOARD" == "scu200_es1_reva" ]; then
+    if [ "$BOARD" == "scu200_reva" ]; then
 	xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip" "0x80200000"
-    elif [ "$BOARD" == "scu200_es1_revb" ]; then
+    elif [ "$BOARD" == "scu200_revb" ]; then
 	xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip" "0x100200000"
     else
         echo "Error: unsupported Microblaze based target $BOARD"
