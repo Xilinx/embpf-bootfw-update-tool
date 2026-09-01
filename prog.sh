@@ -385,7 +385,7 @@ detect_board() {
     board_rev=$(sc_cmd geteeprom onboard summary "Board Revision")
 
 
-    if [[ -z "$silicon_rev" || -z "$boardid" || -z "$board_rev" ]]; then
+    if [[ -z "$boardid" || -z "$board_rev" ]]; then
         echo "Error: Board ID ($boardid) or Silicon Revision($silicon_rev) or Board Revision($board_rev) not found or empty."  >&2
         return 1
     fi
@@ -814,11 +814,11 @@ set_ddr_work_addresses() {
             download_ddr_addr="0x30000000"
             unzipped_binfile_ddr_addr="0x20000000"
             verify_ddr_addr="0x40000000"
-	    if [ "$BOARD" == "scu200_es1_reva" ]; then
+	    if [ "$BOARD" == "scu200_reva" ]; then
 		download_ddr_addr="0x90000000"
 		unzipped_binfile_ddr_addr="0x88000000"
 		verify_ddr_addr="0xA0000000"
-	    elif [ "$BOARD" == "scu200_es1_revb" ]; then
+	    elif [ "$BOARD" == "scu200_revb" ]; then
 		download_ddr_addr="0x110000000"
 		unzipped_binfile_ddr_addr="0x108000000"
 		verify_ddr_addr="0x120000000"
