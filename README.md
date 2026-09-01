@@ -1,6 +1,6 @@
 # Embedded Platform Flash Update Tool
 
-## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V7.2 release.
+## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V7.3 release.
 
 This repository provides a utility to update AMD ACAP's (Adaptive Compute Acceleration Platform aka Adaptive SoC) flash device (OSPI, QSPI, UFS or eMMC) with boot firmware or disk image in supported platforms. The current supported platforms are:
 
