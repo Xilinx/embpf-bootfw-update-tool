@@ -579,7 +579,7 @@ program_ufs_emmc() {
 	    send_to_jtaguart "fatload usb $gz_in_usb:1 $download_ddr_addr $path_to_payload"
 	    match_output_print_prog "term" "bytes read" 600  || exit 1
 	    send_to_jtaguart "echo compressed file size is \${filesize}"
-	    echo "UFS/eMMC programming...this could take up to 5 minutes (step $step/$num_operations)"
+	    echo "UFS/eMMC programming...this could take up to 60 minutes (step $step/$num_operations)"
 	    step=$(( step + 1 ))
 	    send_to_jtaguart "gzwrite $devta $ufs_lun_num $download_ddr_addr \${filesize} 0x100000 0"
 	else
