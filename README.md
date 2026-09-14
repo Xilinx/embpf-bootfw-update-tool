@@ -8,7 +8,6 @@ This repository provides a utility to update AMD ACAP's (Adaptive Compute Accele
    * [Edge+ VPR-4616](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_4616) Versal OSPI update
    * [Edge+ VPR-5050](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_5050) Versal OSPI update
    * [Edge+ VPR-5050a](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_5050a) Versal OSPI update
-   * Rhino Versal OSPI update
 * Kria production SOM QSPI and eMMC update (K26, K24c, K24i)
 * Versal evaluation platforms:
      * VRK160 : OSPI update
@@ -37,8 +36,6 @@ Note that below boards are unsupported in this version due to older System Contr
 Current Embedded+ platforms have a Versal and a Ryzen device. Versal firmware update expects that Ryzen is already running Ubuntu, as the firmware update would be performed from Ryzen. The Ryzen is the Linux host on Embedded+ platforms. Therefore, all the components required to either log onto Ryzen Ubuntu via keyboard+mouse+monitor, network access and ssh, is required and not listed below.
 
 On Embedde+ platform, there are capabilities to set bootmode to JTAG and reset the board through FTDI GPIO and that is being leveraged by the script.
-
-On Rhino platform, there isnt a way to set bootmode using FTDI GPIO. Therefore, if there's program already in OSPI that prevents subsequent programs to access OSPI or DDR, script will not work. In that case, set bootmode to JTAG on the board using physical jumpers, power cycle, and then use this utility again.
 
 ### On Versal evaluation platforms
 
@@ -112,8 +109,8 @@ Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
                      if UFS/eMMC, have to be a gzip of the wic image
     -d <board>     : Board type.  Supported values
                      embplus(defaults to 4616), embplus_4616
-		       embplus_5050, embplus_5050a
-                     rhino, v80
+		           embplus_5050, embplus_5050a
+                     v80
                      kria_k26, kria_k24c, kria_k24i
                      versal_eval, mbv(MicroBlaze-V)
     -b <boot_file> : Optional argument to override jtag boot.bin, for Versal only
@@ -135,7 +132,7 @@ Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
                      by script does not overlap u-boot reserved memory region
     -w             : optional argument to connect to remote hardware server, use
                      IP address or machine name shown by hw_server (without :3121).
-                     not supported for embplus/rhino systems
+                     not supported for Embedded+ systems
     -h             : help
 Example usages:
 to program SPI in verbose mode:
@@ -167,11 +164,6 @@ execute this command to program OSPI:
 for Embedded+:
 ```
 ./prog_ospi.sh -i <boot.bin> -d embplus
-```
-
-for RHINO:
-```
-./prog_ospi.sh -i <boot.bin> -d rhino
 ```
 
 for Kria Production SOM, to program QSPI:
@@ -229,7 +221,7 @@ The -w option allows you to connect the target system on one machine that may no
 
 If the target machine is a Versal evaluation platform, then hw_server is automatically started on the system controller for Versal eval platform. curl command over port 80 is used to call sc_app/sc_cmd on system controller to control the system. the IP address passed in through -w is that of the system controller.
 
-The -w option is not supported for embplus platform due to the need to directly access GPIOs to put the system in JTAG mode and the system lack a default http server to enable curl commands, like that of SC for Versal evaluation platform.
+The -w option is not supported for Embedded+ platform due to the need to directly access GPIOs to put the system in JTAG mode and the system lack a default http server to enable curl commands, like that of SC for Versal evaluation platform.
 
 ## Known issues and debug tips
 
@@ -288,7 +280,7 @@ The -w option is not supported for embplus platform due to the need to directly 
 
 * You may ignore the "rlwrap" warnings.
 
-* On the embplus platforms, the Linux image sometimes requires privileged access to FTDI. If this error is seen, rerun prog_spi.sh call with sudo:
+* On the Embedded+ platforms, the Linux image sometimes requires privileged access to FTDI. If this error is seen, rerun prog_spi.sh call with sudo:
 
   ```ValueError: The device has no langid (permission issue, no string descriptors supported or device error)```
 
