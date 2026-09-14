@@ -10,7 +10,7 @@ This repository provides a utility to update AMD ACAP's (Adaptive Compute Accele
    * [Edge+ VPR-5050a](https://www.sapphiretech.com/en/commercial/edge-plus-vpr_5050a) Versal OSPI update
    * Rhino Versal OSPI update
 * Kria production SOM QSPI and eMMC update (K26, K24c, K24i)
-* Versal Eval platforms:
+* Versal evaluation platforms:
      * VRK160 : OSPI update
      * VRK165 : OSPI update
      * VEK385, revA: OSPI update
@@ -30,28 +30,28 @@ Note that below boards are unsupported in this version due to older System Contr
 
 
 
-## External Components and one time setup Required
+## External components and one time setup required
 
 ### On Embedded+ based platforms
 
 Current Embedded+ platforms have a Versal and a Ryzen device. Versal firmware update expects that Ryzen is already running Ubuntu, as the firmware update would be performed from Ryzen. The Ryzen is the Linux host on Embedded+ platforms. Therefore, all the components required to either log onto Ryzen Ubuntu via keyboard+mouse+monitor, network access and ssh, is required and not listed below.
 
-On Embedded Plus platform, there are capabilities to set bootmode to JTAG and reset the board through FTDI GPIO and that is being leveraged by the script.
+On Embedde+ platform, there are capabilities to set bootmode to JTAG and reset the board through FTDI GPIO and that is being leveraged by the script.
 
 On Rhino platform, there isnt a way to set bootmode using FTDI GPIO. Therefore, if there's program already in OSPI that prevents subsequent programs to access OSPI or DDR, script will not work. In that case, set bootmode to JTAG on the board using physical jumpers, power cycle, and then use this utility again.
 
-### On Versal Evaluation platforms
+### On Versal evaluation platforms
 
 On Versal eval platforms such as VHK158, there's a system controller that has access to Versal. System Controller will be the Linux host on these platform to run this utility to update Versal's OSPI.
 
 ### On Kria platforms
 
-Kria platforms only has a Versal device, thus an external Linux host connected to
+Kria platforms only have a Versal device, thus an external Linux host connected to
 the Kria platform via USB cable is required.
 
 ### On all platforms
 
-Ryzen or host OS Ubuntu must have HW_server (download [2024.1 here](https://account.amd.com/en/forms/downloads/xef.html?filename=Vivado_HW_Server_Lin_2024.1_0522_2023.tar.gz) or [2024.2 here](https://account.amd.com/en/forms/downloads/xef.html?filename=Vivado_HW_Server_Lin_2024.2_1113_1001.tar) or [2025.1 here](https://account.amd.com/en/forms/downloads/xef.html?filename=Vivado_HW_Server_Lin_2025.1_0530_0145.tar) or [2025.2 here](https://account.amd.com/en/forms/downloads/xef.html?filename=Vivado_HW_Server_Lin_2025.2_1114_2157.tar)) or [Vivado_lab](https://www.xilinx.com/support/download.html) installed to provide XSDB tool. HW_server has smaller footprint than Vivado_lab, so if neither are already installed, choose HW_server. To check to see if Vivado_Lab or HWSRVR has been installed, see if they can be found on the system:
+Linux hosts must have HW_server (download [2024.1 here](https://account.amd.com/en/forms/downloads/xef.html?filename=Vivado_HW_Server_Lin_2024.1_0522_2023.tar.gz) or [2024.2 here](https://account.amd.com/en/forms/downloads/xef.html?filename=Vivado_HW_Server_Lin_2024.2_1113_1001.tar) or [2025.1 here](https://account.amd.com/en/forms/downloads/xef.html?filename=Vivado_HW_Server_Lin_2025.1_0530_0145.tar) or [2025.2 here](https://account.amd.com/en/forms/downloads/xef.html?filename=Vivado_HW_Server_Lin_2025.2_1114_2157.tar)) or [Vivado_lab](https://www.xilinx.com/support/download.html) installed to provide XSDB tool. HW_server has smaller footprint than Vivado_lab, so if neither are already installed, choose HW_server. To check to see if Vivado_Lab or HWSRVR has been installed, see if they can be found on the system:
 
 ```
 sudo find / -iname Vivado_Lab
@@ -60,7 +60,7 @@ sudo find / -iname HWSRVR
 
 These are the steps to install HW_server if none of them are installed:
 
-1. uncompress downloaded installation file
+1. Decompress downloaded installation file
 2. Make installation files executable:
       ```
       chmod +x installLibs.sh && chmod +x xsetup
@@ -75,18 +75,18 @@ These are the steps to install HW_server if none of them are installed:
       ```
       sudo <HWSERVERInstall Dir>/data/xicom/cable_drivers/lin64/install_script/install_drivers/install_drivers
       ```
-6. reboot the system,  this is required because we cannot physically unplug the cable as instructed by the installation process
+6. Reboot the system,  this is required because we cannot physically unplug the cable as instructed by the installation process
       ```
       sudo reboot
       ```
 
-### (all platforms) Download  and set up Utility
+### (All platforms) Download  and set up utility
 
 Lastly, go to [Releases](https://github.com/Xilinx/embpf-bootfw-update-tool/releases), find the latest release (V2.0), download it's "Source code" and "bin.zip". Unzip them in your Linux host.  Find ```prog_spi.sh``` in the source code folder. Then place the bin/ folder from bin.zip in the same folder as ```prog_spi.sh```.
 
 In the current code base - if the host Linux has network access to github.com - the bin.zip is automatically downloaded, and unzipped into the right directly. However, if there is network restrictions - then manual download method specified in previous paragraph is required.
 
-*** Important! You must download and use the bin.zip file from release area for Kria and embedded plus platforms. Do not copy your own boot.bin files to the bin/ folder. Do not use the BOOT*.bin files in bin/ folder as an input to -i . They are jtag boot binary files created to boot u-boot with jtag uart instead of physical uart ***
+*** Important! You must download and use the bin.zip file from release area for Kria and Embedded+ platforms. Do not copy your own boot.bin files to the bin/ folder. Do not use the BOOT*.bin files in bin/ folder as an input to -i . They are jtag boot binary files created to boot u-boot with jtag uart instead of physical uart ***
 
 Make ```prog_spi.sh``` executable:
 
@@ -94,7 +94,7 @@ Make ```prog_spi.sh``` executable:
       sudo chmod +x prog_spi.sh
       ```
 
-## Programming Flash Device
+## Programming flash device
 
 Move <boot.bin> that you want to program into OSPI onto filesystem on Ryzen/host OS Ubuntu.
 
@@ -227,15 +227,15 @@ For other versal-based systems, you may create your own boot.bin file that boots
 
 The -w option allows you to connect the target system on one machine that may not be able to run this script, and then run this script from a diff machine to program, erase, or verify OSPI. Make sure to start hw_server through default port 3121 on the machine connected to target machine.
 
-If the target machine is a Versal eval platform, then hw_server is automatically started on the system controller for Versal eval platform. curl command over port 80 is used to call sc_app/sc_cmd on system controller to control the system. the IP address passed in through -w is that of the system controller.
+If the target machine is a Versal evaluation platform, then hw_server is automatically started on the system controller for Versal eval platform. curl command over port 80 is used to call sc_app/sc_cmd on system controller to control the system. the IP address passed in through -w is that of the system controller.
 
-The -w option is not supported for embplus platform due to the need to directly access GPIOs to put the system in JTAG mode and the system lack a default http server to enable curl commands, like that of SC for Versal eval platform.
+The -w option is not supported for embplus platform due to the need to directly access GPIOs to put the system in JTAG mode and the system lack a default http server to enable curl commands, like that of SC for Versal evaluation platform.
 
-## Known issues and Debug Tips
+## Known issues and debug tips
 
 * Script does not support programing OSPI on systems with multiple possible targets. For an example, it does not support programming on a host with more than 1 V80 cards.
 
-* certificate error:
+* Certificate error:
 	The script need to download bin.zip file from github, and if timestamp on the OS is not correct, it may fail with certification error:
 
 	```
@@ -288,7 +288,7 @@ The -w option is not supported for embplus platform due to the need to directly 
 
 * You may ignore the "rlwrap" warnings.
 
-* on the embplus platforms, the Linux image sometimes requires privileged access to FTDI. If this error is seen, rerun prog_spi.sh call with sudo:
+* On the embplus platforms, the Linux image sometimes requires privileged access to FTDI. If this error is seen, rerun prog_spi.sh call with sudo:
 
   ```ValueError: The device has no langid (permission issue, no string descriptors supported or device error)```
 
@@ -302,9 +302,9 @@ The -w option is not supported for embplus platform due to the need to directly 
 
   Workaround: To avoid the I²C race condition, hold the Versal in reset until the System Controller has fully booted, it then allows programming of a new BOOT.BIN file.
   
-* in UFS/eMMC programming - incorrect size reported by `gzwrite` for images larger than 4 GiB
+* In UFS/eMMC programming - incorrect size reported by `gzwrite` for images larger than 4 GiB
 
-  For gzip-compressed images with an uncompressed size larger than 4 GiB, `gzwrite` may report messages such as:
+  For gzip-compressed images with an decompressed size larger than 4 GiB, `gzwrite` may report messages such as:
 
   ```text
   uncompressed 4958212096 of 663244800
@@ -319,12 +319,12 @@ The -w option is not supported for embplus platform due to the need to directly 
   uncompressed_size mod 2^32
   ```
 
-  For files larger than 4 GiB, the true uncompressed size cannot be determined from the gzip file alone. As a result, `gzwrite` may display the truncated ISIZE value (`663244800` bytes in this example) instead of the actual size (`4958212096` bytes). This is an inherent limitation of the gzip format.
+  For files larger than 4 GiB, the true decompressed size cannot be determined from the gzip file alone. As a result, `gzwrite` may display the truncated ISIZE value (`663244800` bytes in this example) instead of the actual size (`4958212096` bytes). This is an inherent limitation of the gzip format.
 
   `gzwrite` continues decompressing until the end of the gzip stream, so programming is not affected. The matching CRC values confirm successful decompression.
 
 
 
 # License
-(C) Copyright 2024, Advanced Micro Devices Inc.\
+(C) Copyright 2026, Advanced Micro Devices Inc.\
 SPDX-License-Identifier: MIT
