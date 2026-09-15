@@ -79,23 +79,23 @@ These are the steps to install HW_server if none of them are installed:
 
 ### (All platforms) Download  and set up utility
 
-Lastly, go to [Releases](https://github.com/Xilinx/embpf-bootfw-update-tool/releases), find the latest release (V2.0), download it's "Source code" and "bin.zip". Unzip them in your Linux host.  Find ```prog_spi.sh``` in the source code folder. Then place the bin/ folder from bin.zip in the same folder as ```prog_spi.sh```.
+Lastly, go to [Releases](https://github.com/Xilinx/embpf-bootfw-update-tool/releases), find the latest release (V2.0), download it's "Source code" and "bin.zip". Unzip them in your Linux host.  Find ```prog.sh``` in the source code folder. Then place the bin/ folder from bin.zip in the same folder as ```prog.sh```.
 
 In the current code base - if the host Linux has network access to github.com - the bin.zip is automatically downloaded, and unzipped into the right directly. However, if there is network restrictions - then manual download method specified in previous paragraph is required.
 
 *** Important! You must download and use the bin.zip file from release area for Kria and Embedded+ platforms. Do not copy your own boot.bin files to the bin/ folder. Do not use the BOOT*.bin files in bin/ folder as an input to -i . They are jtag boot binary files created to boot u-boot with jtag uart instead of physical uart ***
 
-Make ```prog_spi.sh``` executable:
+Make ```prog.sh``` executable:
 
       ```
-      sudo chmod +x prog_spi.sh
+      sudo chmod +x prog.sh
       ```
 
 ## Programming flash device
 
 Move <boot.bin> that you want to program into OSPI onto filesystem on Ryzen/host OS Ubuntu.
 
-prog_spi.sh is used to program OSPI. It can also be used to program UFS and eMMC on supported platforms.
+prog.sh is used to program OSPI. It can also be used to program UFS and eMMC on supported platforms.
 
 ```
 Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
@@ -163,27 +163,27 @@ execute this command to program OSPI:
 
 for Embedded+:
 ```
-./prog_ospi.sh -i <boot.bin> -d embplus
+./prog.sh -i <boot.bin> -d embplus
 ```
 
 for Kria Production SOM, to program QSPI:
 ```
 #k26c or k26i:
-./prog_spi.sh -i <boot.bin> -d kria_k26
+./prog.sh -i <boot.bin> -d kria_k26
 #k24c:
-./prog_spi.sh -i <boot.bin> -d kria_k24c
+./prog.sh -i <boot.bin> -d kria_k24c
 #k24i:
-./prog_spi.sh -i <boot.bin> -d kria_k24i
+./prog.sh -i <boot.bin> -d kria_k24i
 ```
 
 for VHK158/VEK280/VEK385/VRK160/VRK165/VEK386/VPK360, use -d versal_eval and script will automatically check if it is running on one of the supported systems:
 ```
-./prog_spi.sh -i <boot.bin> -d versal_eval
+./prog.sh -i <boot.bin> -d versal_eval
 ```
 
 for SCU200, use -d mbv and MicroBlaze based system may require starting address to be something other than 0x0 (such as 0xA0000):
 ```
-./prog_spi.sh -i <boot.bin> -d mbv -a 0xA0000
+./prog.sh -i <boot.bin> -d mbv -a 0xA0000
 ```
 
 When the script finishes (in about 4 minutes), the flash will have been updated with <boot.bin>.
@@ -193,15 +193,15 @@ For eMMC and UFS programming, it is recommended to use -verbose mode to monitor 
 for Kria Production SOM, to program eMMC:
 ```
 #k26c or k26i:
-./prog_spi.sh -i <wic.gz> -d kria_k26 -E -V
+./prog.sh -i <wic.gz> -d kria_k26 -E -V
 #k24c:
-./prog_spi.sh -i <wic.gz> -d kria_k24c -E -V
+./prog.sh -i <wic.gz> -d kria_k24c -E -V
 #k24i:
-./prog_spi.sh -i <wic.gz> -d kria_k24i -E -V
+./prog.sh -i <wic.gz> -d kria_k24i -E -V
 ```
 for VEK385, to program UFS:
 ```
-./prog_spi.sh -i <wic.gz> -d versal_eval -U -V
+./prog.sh -i <wic.gz> -d versal_eval -U -V
 ```
 
 
@@ -212,7 +212,7 @@ for VEK385, to program UFS:
 For other versal-based systems, you may create your own boot.bin file that boots u-boot over jtag uart, and then use -b <boot_file> to pass in the boot.bin. The u-boot created must use jtag uart instead of physical uart, and have access to DDR and OSPI. The command would look like below for a Versal based board:
 
 ```
-./prog_spi.sh -i <boot.bin to program into OSPI> -d versal_eval -b <boot.bin that uses jtag uart>
+./prog.sh -i <boot.bin to program into OSPI> -d versal_eval -b <boot.bin that uses jtag uart>
 ```
 
 #### -w option
@@ -280,7 +280,7 @@ The -w option is not supported for Embedded+ platform due to the need to directl
 
 * You may ignore the "rlwrap" warnings.
 
-* On the Embedded+ platforms, the Linux image sometimes requires privileged access to FTDI. If this error is seen, rerun prog_spi.sh call with sudo:
+* On the Embedded+ platforms, the Linux image sometimes requires privileged access to FTDI. If this error is seen, rerun prog.sh call with sudo:
 
   ```ValueError: The device has no langid (permission issue, no string descriptors supported or device error)```
 
