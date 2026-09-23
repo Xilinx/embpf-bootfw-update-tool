@@ -491,6 +491,7 @@ provision_ufs() {
     xsdb_cmd "${SCRIPT_PATH}"/${device_type}/ufs_provision.tcl "${SCRIPT_PATH}"/${device_type}/ufs_provision.elf
     
     echo "Booting again device over JTAG (step $step/$num_operations)"
+
     xsdb_cmd "${SCRIPT_PATH}"/${device_type}/jtag_boot.tcl "$binfile" "$dtb_file" "$remote_ip"
 
     sleep 2  # Wait a moment for nc to initialize
@@ -594,13 +595,12 @@ program_ufs_emmc() {
 	    echo "Compressed:   $compressed_size bytes"
 	    echo "Uncompressed: $uncompressed_size bytes"
 
-	    echo "Downloading image to DDR (step $step/$num_operations)"
+	    echo "Download image to ddr through XSDB. this could take a while (step $step/$num_operations)"
 	    step=$(( step + 1 ))
-	    echo "download image to ddr through XSDB. this could take a while   (step $step/$num_operations)"
 
 	    xsdb_cmd "${SCRIPT_PATH}"/${device_type}/download_data.tcl "$path_to_payload" "$remote_ip" "$download_ddr_addr"
 
-	    echo "UFS/eMMC programming...this could take up to 5 minutes (step $step/$num_operations)"
+	    echo "UFS/eMMC programming...this could take up to 60 minutes (step $step/$num_operations)"
 	    step=$(( step + 1 ))
 	
 	    send_to_jtaguart "gzwrite $devta $ufs_lun_num $download_ddr_addr $compressed_size_hex 0x100000 0"	
@@ -612,8 +612,11 @@ program_ufs_emmc() {
     fi
     
     if $verify; then
+        echo "$devtarget verification do not require downloading payload to DDR (step $step/$num_operations)"
+        step=$((step + 1))
         echo "$devtarget full verification (step $step/$num_operations)"
         step=$((step + 1))
+
         if [ "$devtarget" == "UFS" ]; then
             if ! verify_storage_full "scsi" "$ufs_block_size"; then
                 echo "ERROR: UFS verification failed"
