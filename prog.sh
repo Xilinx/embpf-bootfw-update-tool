@@ -612,8 +612,6 @@ program_ufs_emmc() {
     fi
     
     if $verify; then
-        echo "$devtarget verification do not require downloading payload to DDR (step $step/$num_operations)"
-        step=$((step + 1))
         echo "$devtarget full verification (step $step/$num_operations)"
         step=$((step + 1))
 
@@ -1118,6 +1116,11 @@ if ! $check_blank && ! $verify && ! $erase && ! $prog; then
     prog=true
     num_operations=$(( num_operations + 1 ))
     echo "Default to programming $devtarget"
+fi
+
+if [[ "$devtarget" == "UFS" ]] && $verify && ! $prog; then
+#    if only verify on UFS, one less step since DDR download is not needed
+    num_operations=$(( num_operations - 1 ))
 fi
 
 if [[ "$devtarget" == "UFS" ]] && { $erase || $check_blank ; }; then
