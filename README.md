@@ -1,6 +1,6 @@
 # Embedded Platform Flash Update Tool
 
-## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V7.3 release.
+## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V8.0 release.
 
 This repository provides a utility to update AMD ACAP's (Adaptive Compute Acceleration Platform aka Adaptive SoC) flash device (OSPI, QSPI, UFS or eMMC) with boot firmware or disk image in supported platforms. The current supported platforms are:
 
@@ -16,6 +16,7 @@ This repository provides a utility to update AMD ACAP's (Adaptive Compute Accele
      * VEK385, revB: OSPI and UFS update
      * VEK386, OSPI and UFS update
      * VPK360, OSPI update
+     * VMK365, OSPI and UFS update
 * Spartan UltraScale+
      * SCU200
 * Versal OSPI update for Alveo Acelerator
@@ -101,7 +102,7 @@ prog.sh is used to program OSPI. It can also be used to program UFS and eMMC on 
 Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
     -S             : target SPI memory - this is default if no -S or -U is present
     -U             : target UFS memory. Currently only support:
-                     VEK385
+                     VEK385, VEK386, VMK365
     -E             : target eMMC memory. Currently only support:
                      Kria platforms: kria_k26, kria_k24c, kria_k24i
     -i <file>      : Payload file to write into OSPI/QSPI/UFS
@@ -154,7 +155,7 @@ to program SPI and verify on MicroblazeV based board (scu200) and program starti
 to program a remote hw_server target in verbose mode
      ./prog.sh -Vp -d <board_type> -i <path_to_boot.bin> -w <remote machine name or IP addr> 
 to program UFS in verbose mode:
-     ./prog.sh -i <path_to_boot.bin> -d versal_eval -V -U
+     ./prog.sh -i <path_to_wic.gz> -d versal_eval -V -U
 to program eMMC in verbose mode:
      ./prog.sh -i <path_to_boot.bin> -d <board_type> -V -E
 ```
@@ -224,6 +225,9 @@ If the target machine is a Versal evaluation platform, then hw_server is automat
 The -w option is not supported for Embedded+ platform due to the need to directly access GPIOs to put the system in JTAG mode and the system lack a default http server to enable curl commands, like that of SC for Versal evaluation platform.
 
 ## Known issues and debug tips
+
+* Full verification is not supported when the payload is sourced from USB (-u). Verification works by decompressing the reference gzip file on the host and computing a CRC32 per fixed-size chunk (with byte offsets), then independently reading those same regions back from the target device for comparison. U-Boot's gzwrite already computes a single whole-file CRC32 during the write itself (checked against the gzip trailer), but it has no mechanism to emit chunked, offset-tagged checksums — that would require new logic inside gzwrite's U-Boot implementation, not just script changes. Since USB-sourced payloads are never host-visible, the host-side half of today's verification approach has no file to read, so -u + full verification is unsupported until that U-Boot-side capability exists. Verify with -i sourced on host is not slower than verify from USB source because the payload does not need to be transfered to target.
+
 
 * Script does not support programing OSPI on systems with multiple possible targets. For an example, it does not support programming on a host with more than 1 V80 cards.
 
