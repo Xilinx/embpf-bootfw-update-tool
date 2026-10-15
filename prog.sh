@@ -1286,6 +1286,7 @@ if $embplus_reset; then
 fi
 
 if [ "$device_type" == "microblaze" ]; then
+    step=1
     echo "Booting device over JTAG (step $step/$num_operations)"
     step=$(( step + 1 ))
     if [ "$BOARD" == "scu200_reva" ]; then
