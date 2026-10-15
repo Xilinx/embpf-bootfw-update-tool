@@ -392,7 +392,7 @@ detect_board() {
 
     # some boards - ignore silicon rev. board rev matters
     # other eval boards - silicon rev matters
-    if [[ "${boardid,,}" =~ vek385|scu200|vmk365 ]]; then
+    if [[ "${boardid,,}" =~ vek385|vek386|scu200|vmk365 ]]; then
 	boardid="${boardid}_rev${board_rev:0:1}"
     else 
 	if [ "$silicon_rev" != "PROD" ]; then

@@ -135,7 +135,17 @@ bdi_guard_check() {
   check_one_candidate_against_reserved "verify_ddr(bin_size)"  "$VERIFY_ADDR" "$FLASH_SZ_HEX"   || return 1
   check_one_candidate_against_reserved "unzipped_binfile_ddr" "$UNZIP_ADDR" "$FLASH_SZ_HEX" || return 1
 
-
+  # UFS/eMMC intentionally alias download/verify/unzip to the same scratch
+  # address (sequential reuse, not concurrent regions) - only SPI needs these
+  # three to be distinct, non-overlapping buffers.
+  if [ "$devtarget" == "SPI" ]; then
+      check_pairwise_buffer_overlap "download_ddr" "$DOWNLOAD_ADDR" "$FLASH_SZ_HEX" \
+                                     "verify_ddr" "$VERIFY_ADDR" "$FLASH_SZ_HEX" || return 1
+      check_pairwise_buffer_overlap "download_ddr" "$DOWNLOAD_ADDR" "$FLASH_SZ_HEX" \
+                                     "unzipped_binfile_ddr" "$UNZIP_ADDR" "$FLASH_SZ_HEX" || return 1
+      check_pairwise_buffer_overlap "verify_ddr" "$VERIFY_ADDR" "$FLASH_SZ_HEX" \
+                                     "unzipped_binfile_ddr" "$UNZIP_ADDR" "$FLASH_SZ_HEX" || return 1
+  fi
 
   return 0
 }
