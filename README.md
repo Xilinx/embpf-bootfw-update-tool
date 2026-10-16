@@ -80,9 +80,9 @@ These are the steps to install HW_server if none of them are installed:
 
 ### (All platforms) Download  and set up utility
 
-Lastly, go to [Releases](https://github.com/Xilinx/embpf-bootfw-update-tool/releases), find the latest release (V2.0), download it's "Source code" and "bin.zip". Unzip them in your Linux host.  Find ```prog.sh``` in the source code folder. Then place the bin/ folder from bin.zip in the same folder as ```prog.sh```.
+Lastly, go to [Releases](https://github.com/Xilinx/embpf-bootfw-update-tool/releases), find the latest release, download it's "Source code". Unzip them in your Linux host.  Find ```prog.sh``` in the source code folder. 
 
-In the current code base - if the host Linux has network access to github.com - the bin.zip is automatically downloaded, and unzipped into the right directly. However, if there is network restrictions - then manual download method specified in previous paragraph is required.
+In the current code base - if the host Linux has network access to github.com - the bin.zip is automatically downloaded, and unzipped into the right directly. However, if there is network restrictions - then also download bin.zip, unzip it and place the bin/ folder in the same folder as ```prog.sh```.
 
 *** Important! You must download and use the bin.zip file from release area for Kria and Embedded+ platforms. Do not copy your own boot.bin files to the bin/ folder. Do not use the BOOT*.bin files in bin/ folder as an input to -i . They are jtag boot binary files created to boot u-boot with jtag uart instead of physical uart ***
 
@@ -94,12 +94,12 @@ Make ```prog.sh``` executable:
 
 ## Programming flash device
 
-Move <boot.bin> that you want to program into OSPI onto filesystem on Ryzen/host OS Ubuntu.
+Move payload <boot.bin / boot.bin.gz / wic.gz> that you want to program into OSPI/UDS/eMMC onto filesystem on Ryzen/host OS Ubuntu.
 
 prog.sh is used to program OSPI. It can also be used to program UFS and eMMC on supported platforms.
 
 ```
-Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
+Default Usage: ./prog.sh -i <path_to_payload> -d <board_type>
     -S             : target SPI memory - this is default if no -S or -U is present
     -U             : target UFS memory. Currently only support:
                      VEK385, VEK386, VMK365
@@ -200,9 +200,13 @@ for Kria Production SOM, to program eMMC:
 #k24i:
 ./prog.sh -i <wic.gz> -d kria_k24i -E -V
 ```
-for VEK385, to program UFS:
+for VEK385/VEK386/VMK365, to program UFS:
 ```
-./prog.sh -i <wic.gz> -d versal_eval -U -V
+#program and verify with source on host/system controller:
+./prog.sh -i <wic.gz> -d versal_eval -U -Vpv
+#program with source on USB
+./prog.sh -i <wic.gz> -d versal_eval -U -Vp -u
+
 ```
 
 
@@ -226,7 +230,7 @@ The -w option is not supported for Embedded+ platform due to the need to directl
 
 ## Known issues and debug tips
 
-* Full verification is not supported when the payload is sourced from USB (-u). Verification works by decompressing the reference gzip file on the host and computing a CRC32 per fixed-size chunk (with byte offsets), then independently reading those same regions back from the target device for comparison. U-Boot's gzwrite already computes a single whole-file CRC32 during the write itself (checked against the gzip trailer), but it has no mechanism to emit chunked, offset-tagged checksums — that would require new logic inside gzwrite's U-Boot implementation, not just script changes. Since USB-sourced payloads are never host-visible, the host-side half of today's verification approach has no file to read, so -u + full verification is unsupported until that U-Boot-side capability exists. Verify with -i sourced on host is not slower than verify from USB source because the payload does not need to be transfered to target.
+* Verification for UFS is not supported when the payload is sourced from USB (-u). Verification works by decompressing the reference gzip file on the host and computing a CRC32 per fixed-size chunk (with byte offsets), then independently reading those same regions back from the target device for comparison. U-Boot doesn't have an equivalent decompressor to produce intermediate, chunk-tagged checksums as it goes. Verify with -i sourced on host is not slower than verify from USB source because the payload does not need to be transfered to target. To workaround this, put the same wic.gz image on host and on USB, and program from USB but verify from host. 
 
 
 * Script does not support programing OSPI on systems with multiple possible targets. For an example, it does not support programming on a host with more than 1 V80 cards.
