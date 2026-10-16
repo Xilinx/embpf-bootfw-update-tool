@@ -1053,13 +1053,13 @@ if $bdi_reserved_mem_check; then
 fi
 
 if $i_flag_set; then
-    if [ ! -e "$path_to_payload" ] && [ "$payload_in_usb" = false ]; then
-        echo
-        echo "ERROR: unable to find file $path_to_payload"
-        echo
-        usage
-    fi
     if ! $payload_in_usb; then
+	if [ ! -e "$path_to_payload" ] ; then
+            echo
+            echo "ERROR: unable to find file $path_to_payload"
+            echo
+            usage
+	fi
 	# check -i for symbolic link
 	if [ -L "$path_to_payload" ]; then
             actual_target=$(readlink -f "$path_to_payload")
@@ -1073,8 +1073,12 @@ if $i_flag_set; then
 	    cleanup
 	    exit 1
 	fi
-
-
+    else
+	if [[ "$path_to_payload" != *.gz ]]; then
+	    echo "ERROR: with -u, -i must be a .gz file (USB-sourced payload): $path_to_payload"
+	    cleanup
+	    exit 1
+	fi
     fi
 fi
 
