@@ -126,7 +126,7 @@ Default Usage: ./prog.sh -i <path_to_payload> -d <board_type>
     -c             : check if flash is blank/erased
     -e             : erase flash
     -u             : indicate for UFS programming, that the wic.gz file in -i option
-                     is in USB drive. Supported only for UFS programming
+                     is in USB drive on the DUT side. Supported only for UFS programming
     -V             : verbose logging
     -M             : optional argument to add memory check to make sure DDR used - in 7.0 and newer release this is default
     -N             : optional argument to remove memory check that make sure DDR used
@@ -204,7 +204,7 @@ for VEK385/VEK386/VMK365, to program UFS:
 ```
 #program and verify with source on host/system controller:
 ./prog.sh -i <wic.gz> -d versal_eval -U -Vpv
-#program with source on USB
+#program with source on USB on the DUT side
 ./prog.sh -i <wic.gz> -d versal_eval -U -Vp -u
 
 ```
@@ -229,6 +229,22 @@ If the target machine is a Versal evaluation platform, then hw_server is automat
 The -w option is not supported for Embedded+ platform due to the need to directly access GPIOs to put the system in JTAG mode and the system lack a default http server to enable curl commands, like that of SC for Versal evaluation platform.
 
 ## Known issues and debug tips
+
+* when programming UFS with payload in USB, please make sure to use one of the USB ports on the DUT side - not the USB port on the system controller side. If there's no USB on the DUT side you may see the following when trying to use -u:
+
+```
+received on term:  versal2> fatls usb 0
+received on term:  ** Bad device specification usb 0 **
+received on term:  Couldn't find partition usb 0
+received on term:  versal2> 
+Error: Timed out after 10 seconds - script failed
+Error: Failed to read a line from term, exiting...
+Sent to JTAG UART: fatls usb 1
+received on term:  fatls usb 1
+received on term:  ** Bad device specification usb 1 **
+received on term:  Couldn't find partition usb 1
+```
+
 
 * Verification for UFS is not supported when the payload is sourced from USB (-u). Verification works by decompressing the reference gzip file on the host and computing a CRC32 per fixed-size chunk (with byte offsets), then independently reading those same regions back from the target device for comparison. U-Boot doesn't have an equivalent decompressor to produce intermediate, chunk-tagged checksums as it goes. Verify with -i sourced on host is not slower than verify from USB source because the payload does not need to be transfered to target. To workaround this, put the same wic.gz image on host and on USB, and program from USB but verify from host. 
 
