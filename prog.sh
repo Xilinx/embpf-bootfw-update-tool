@@ -9,7 +9,7 @@
 #
 #**********************************************************************
 
-echo "Version 7.3"
+echo "Version 8.0"
 
 cleanup(){
     kill "${COPROC_PID}" 2>/dev/null
@@ -390,9 +390,9 @@ detect_board() {
         return 1
     fi
 
-    # VEK385 - ignore silicon rev. board rev matters
+    # some boards - ignore silicon rev. board rev matters
     # other eval boards - silicon rev matters
-    if [[ "${boardid,,}" =~ vek385|scu200 ]]; then
+    if [[ "${boardid,,}" =~ vek385|vek386|scu200|vmk365 ]]; then
 	boardid="${boardid}_rev${board_rev:0:1}"
     else 
 	if [ "$silicon_rev" != "PROD" ]; then
@@ -409,7 +409,7 @@ detect_board() {
 
 program_spi() {
     send_to_jtaguart "sf probe 0x0 0x0 0x0"
-    match_output_print_prog "term" "SF: Detected" 10 || exit 1
+    match_output_print_prog "term" "SF: Detected" 20 || exit 1
     
     if $verbose; then
 	echo "Flash size is $flash_size_hex"
@@ -509,7 +509,7 @@ provision_ufs() {
 
 
     
-    if ! match_output_print_prog "term" "59.6 GB" 10 "noclean"; then
+    if ! match_output_print_prog "term" "59.6 GB" 30 "noclean"; then
 	echo "ERROR: UFS not provisioned to expected partition. 59.6GB partition not found. This is unexpected - quitting"
 	cleanup
 	exit 1
@@ -524,7 +524,7 @@ prep_ufs() {
 
 
     if [ -z "$ufs_lun_num" ]; then
-       if ! match_output_print_prog "term" "59.6 GB" 10 "noclean"; then
+       if ! match_output_print_prog "term" "59.6 GB" 30 "noclean"; then
 	   echo "UFS not provisioned to expected partition. 59.6GB partition not found. provisioning!"
 	   provision_ufs
        fi
@@ -549,7 +549,6 @@ end_ufs() {
 
 program_ufs_emmc() {
 
-
     if $payload_in_usb; then
 	send_to_jtaguart "usb start"
 	send_to_jtaguart "fatls usb 0"
@@ -567,6 +566,7 @@ program_ufs_emmc() {
 	compressed_size=$uboot_gz_size
 	compressed_size_hex=$(printf "0x%08x" $compressed_size)
     fi
+    
 
     #compressed_size_hex determined by now
     set_ddr_work_addresses "$compressed_size_hex"
@@ -584,12 +584,6 @@ program_ufs_emmc() {
 	    step=$(( step + 1 ))
 	    send_to_jtaguart "gzwrite $devta $ufs_lun_num $download_ddr_addr \${filesize} 0x100000 0"
 	else
-	    if [ "$format" != "gzip" ]; then
-		echo "ERROR: UFS/eMMC programming requires a gzip input file in -i"
-		cleanup
-		exit 1
-	    fi
-
 	    gzfile="$path_to_payload"
 
 	    echo "Compressed:   $compressed_size bytes"
@@ -739,7 +733,7 @@ usage () {
     echo "Default Usage: $0 -i <path_to_boot.bin> -d <board_type>"
     echo "    -S             : target SPI memory - this is default if no -S or -U is present"
     echo "    -U             : target UFS memory. Currently only support:"
-    echo "                     VEK385"
+    echo "                     VEK385, VEK386, VMK365"
     echo "    -E             : target eMMC memory. Currently only support:"
     echo "                     Kria platforms: kria_k26, kria_k24c, kria_k24i"
     echo "    -i <file>      : Payload file to write into OSPI/QSPI/UFS"
@@ -793,7 +787,7 @@ usage () {
     echo "to program a remote hw_server target in verbose mode"
     echo "     $0 -Vp -d <board_type> -i <path_to_boot.bin> -w <remote machine name or IP addr> "
     echo "to program UFS in verbose mode:"
-    echo "     $0 -i <path_to_boot.bin> -d versal_eval -V -U"
+    echo "     $0 -i <path_to_wic.gz> -d versal_eval -V -U"
     echo "to program eMMC in verbose mode:"
     echo "     $0 -i <path_to_boot.bin> -d <board_type> -V -E"
  
@@ -813,7 +807,7 @@ set_ddr_work_addresses() {
         SPI)
 	    #kria QSPI size is 0x400_0000, embplus OSPI size is 0x1000_0000
             download_ddr_addr="0x30000000"
-            unzipped_binfile_ddr_addr="0x20000000"
+            unzipped_binfile_ddr_addr="0x50000000"
             verify_ddr_addr="0x40000000"
 	    if [ "$BOARD" == "scu200_reva" ]; then
 		download_ddr_addr="0x90000000"
@@ -1059,11 +1053,32 @@ if $bdi_reserved_mem_check; then
 fi
 
 if $i_flag_set; then
-    if [ ! -e "$path_to_payload" ] && [ "$payload_in_usb" = false ]; then
-        echo
-        echo "ERROR: unable to find file $path_to_payload"
-        echo
-        usage
+    if ! $payload_in_usb; then
+	if [ ! -e "$path_to_payload" ] ; then
+            echo
+            echo "ERROR: unable to find file $path_to_payload"
+            echo
+            usage
+	fi
+	# check -i for symbolic link
+	if [ -L "$path_to_payload" ]; then
+            actual_target=$(readlink -f "$path_to_payload")
+            echo "$path_to_payload is a symbolic link to $actual_target"
+            path_to_payload="$actual_target"
+	fi
+	format=$(file "$path_to_payload" | awk '{print $2}')
+
+	if [[ "$devtarget" == "UFS" || "$devtarget" == "EMMC" ]] && [[ "$format" != "gzip" ]]; then
+	    echo "ERROR: UFS/eMMC programming requires a gzip input file in -i"
+	    cleanup
+	    exit 1
+	fi
+    else
+	if [[ "$path_to_payload" != *.gz ]]; then
+	    echo "ERROR: with -u, -i must be a .gz file (USB-sourced payload): $path_to_payload"
+	    cleanup
+	    exit 1
+	fi
     fi
 fi
 
@@ -1118,13 +1133,19 @@ if ! $check_blank && ! $verify && ! $erase && ! $prog; then
     echo "Default to programming $devtarget"
 fi
 
-if [[ "$devtarget" == "UFS" ]] && $verify && ! $prog; then
+if [[ "$devtarget" == "UFS" || "$devtarget" == "EMMC" ]] && $verify && ! $prog; then
 #    if only verify on UFS, one less step since DDR download is not needed
     num_operations=$(( num_operations - 1 ))
 fi
 
-if [[ "$devtarget" == "UFS" ]] && { $erase || $check_blank ; }; then
-    echo "ERROR: Erasing/checking UFS currently not supported"
+if [[ "$devtarget" == "UFS" || "$devtarget" == "EMMC" ]] && { $erase || $check_blank ; }; then
+    echo "ERROR: Erasing/checking UFS/eMMC currently not supported"
+    cleanup
+    exit 1
+fi
+
+if $verify && $payload_in_usb ; then
+    echo "ERROR: verify not supported with payload in USB"
     cleanup
     exit 1
 fi
@@ -1176,18 +1197,7 @@ fi
 
 
 if ! $check_blank && ! $erase && ! $payload_in_usb; then
-    # check -i for symbolic link
-    if [ -L "$path_to_payload" ]; then
-        actual_target=$(readlink -f "$path_to_payload")
-        echo "$path_to_payload is a symbolic link to $actual_target"
-        path_to_payload="$actual_target"
-        if [ ! -e "$path_to_payload" ]; then
-                    echo "Unable to find file $path_to_payload"
-        fi
-    fi
-
     # find size of -i input, accounting for gzip format
-    format=$(file "$path_to_payload" | awk '{print $2}')
     if [ "$format" == "gzip" ]; then    
         uncompressed_size=$(file "$path_to_payload" | awk '{print $NF}')
 	compressed_size=$(stat -c "%s" "$path_to_payload")
@@ -1209,7 +1219,7 @@ fi
 # Check if the bootbin file has been copied over
 if [ ! -f "$binfile" ]; then
    echo "File "$binfile" does not exist, auto downloading bin.zip"
-   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v7.3/bin.zip
+   wget -O bin.zip https://github.com/Xilinx/embpf-bootfw-update-tool/releases/download/v8.0/bin.zip
    unzip -o bin.zip -d "${SCRIPT_PATH}"
    if [ ! -f "$binfile" ]; then
        if $b_flag_set; then
@@ -1280,6 +1290,7 @@ if $embplus_reset; then
 fi
 
 if [ "$device_type" == "microblaze" ]; then
+    step=1
     echo "Booting device over JTAG (step $step/$num_operations)"
     step=$(( step + 1 ))
     if [ "$BOARD" == "scu200_reva" ]; then

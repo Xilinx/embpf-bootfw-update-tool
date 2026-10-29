@@ -1,6 +1,6 @@
 # Embedded Platform Flash Update Tool
 
-## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V7.3 release.
+## NOTE: Stable version of this utility with corresponding readme and bin folder are in the release area. This readme corresponds to V8.0 release.
 
 This repository provides a utility to update AMD ACAP's (Adaptive Compute Acceleration Platform aka Adaptive SoC) flash device (OSPI, QSPI, UFS or eMMC) with boot firmware or disk image in supported platforms. The current supported platforms are:
 
@@ -16,6 +16,7 @@ This repository provides a utility to update AMD ACAP's (Adaptive Compute Accele
      * VEK385, revB: OSPI and UFS update
      * VEK386, OSPI and UFS update
      * VPK360, OSPI update
+     * VMK365, OSPI and UFS update
 * Spartan UltraScale+
      * SCU200
 * Versal OSPI update for Alveo Acelerator
@@ -79,9 +80,9 @@ These are the steps to install HW_server if none of them are installed:
 
 ### (All platforms) Download  and set up utility
 
-Lastly, go to [Releases](https://github.com/Xilinx/embpf-bootfw-update-tool/releases), find the latest release (V2.0), download it's "Source code" and "bin.zip". Unzip them in your Linux host.  Find ```prog.sh``` in the source code folder. Then place the bin/ folder from bin.zip in the same folder as ```prog.sh```.
+Lastly, go to [Releases](https://github.com/Xilinx/embpf-bootfw-update-tool/releases), find the latest release, download it's "Source code". Unzip them in your Linux host.  Find ```prog.sh``` in the source code folder. 
 
-In the current code base - if the host Linux has network access to github.com - the bin.zip is automatically downloaded, and unzipped into the right directly. However, if there is network restrictions - then manual download method specified in previous paragraph is required.
+In the current code base - if the host Linux has network access to github.com - the bin.zip is automatically downloaded, and unzipped into the right directly. However, if there is network restrictions - then also download bin.zip, unzip it and place the bin/ folder in the same folder as ```prog.sh```.
 
 *** Important! You must download and use the bin.zip file from release area for Kria and Embedded+ platforms. Do not copy your own boot.bin files to the bin/ folder. Do not use the BOOT*.bin files in bin/ folder as an input to -i . They are jtag boot binary files created to boot u-boot with jtag uart instead of physical uart ***
 
@@ -93,15 +94,15 @@ Make ```prog.sh``` executable:
 
 ## Programming flash device
 
-Move <boot.bin> that you want to program into OSPI onto filesystem on Ryzen/host OS Ubuntu.
+Move payload <boot.bin / boot.bin.gz / wic.gz> that you want to program into OSPI/UDS/eMMC onto filesystem on Ryzen/host OS Ubuntu.
 
 prog.sh is used to program OSPI. It can also be used to program UFS and eMMC on supported platforms.
 
 ```
-Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
+Default Usage: ./prog.sh -i <path_to_payload> -d <board_type>
     -S             : target SPI memory - this is default if no -S or -U is present
     -U             : target UFS memory. Currently only support:
-                     VEK385
+                     VEK385, VEK386, VMK365
     -E             : target eMMC memory. Currently only support:
                      Kria platforms: kria_k26, kria_k24c, kria_k24i
     -i <file>      : Payload file to write into OSPI/QSPI/UFS
@@ -125,7 +126,7 @@ Default Usage: ./prog.sh -i <path_to_boot.bin> -d <board_type>
     -c             : check if flash is blank/erased
     -e             : erase flash
     -u             : indicate for UFS programming, that the wic.gz file in -i option
-                     is in USB drive. Supported only for UFS programming
+                     is in USB drive on the DUT side. Supported only for UFS programming
     -V             : verbose logging
     -M             : optional argument to add memory check to make sure DDR used - in 7.0 and newer release this is default
     -N             : optional argument to remove memory check that make sure DDR used
@@ -154,7 +155,7 @@ to program SPI and verify on MicroblazeV based board (scu200) and program starti
 to program a remote hw_server target in verbose mode
      ./prog.sh -Vp -d <board_type> -i <path_to_boot.bin> -w <remote machine name or IP addr> 
 to program UFS in verbose mode:
-     ./prog.sh -i <path_to_boot.bin> -d versal_eval -V -U
+     ./prog.sh -i <path_to_wic.gz> -d versal_eval -V -U
 to program eMMC in verbose mode:
      ./prog.sh -i <path_to_boot.bin> -d <board_type> -V -E
 ```
@@ -199,9 +200,13 @@ for Kria Production SOM, to program eMMC:
 #k24i:
 ./prog.sh -i <wic.gz> -d kria_k24i -E -V
 ```
-for VEK385, to program UFS:
+for VEK385/VEK386/VMK365, to program UFS:
 ```
-./prog.sh -i <wic.gz> -d versal_eval -U -V
+#program and verify with source on host/system controller:
+./prog.sh -i <wic.gz> -d versal_eval -U -Vpv
+#program with source on USB on the DUT side
+./prog.sh -i <wic.gz> -d versal_eval -U -Vp -u
+
 ```
 
 
@@ -224,6 +229,25 @@ If the target machine is a Versal evaluation platform, then hw_server is automat
 The -w option is not supported for Embedded+ platform due to the need to directly access GPIOs to put the system in JTAG mode and the system lack a default http server to enable curl commands, like that of SC for Versal evaluation platform.
 
 ## Known issues and debug tips
+
+* when programming UFS with payload in USB, please make sure to use one of the USB ports on the DUT side - not the USB port on the system controller side. If there's no USB on the DUT side you may see the following when trying to use -u:
+
+```
+received on term:  versal2> fatls usb 0
+received on term:  ** Bad device specification usb 0 **
+received on term:  Couldn't find partition usb 0
+received on term:  versal2> 
+Error: Timed out after 10 seconds - script failed
+Error: Failed to read a line from term, exiting...
+Sent to JTAG UART: fatls usb 1
+received on term:  fatls usb 1
+received on term:  ** Bad device specification usb 1 **
+received on term:  Couldn't find partition usb 1
+```
+
+
+* Verification for UFS is not supported when the payload is sourced from USB (-u). Verification works by decompressing the reference gzip file on the host and computing a CRC32 per fixed-size chunk (with byte offsets), then independently reading those same regions back from the target device for comparison. U-Boot doesn't have an equivalent decompressor to produce intermediate, chunk-tagged checksums as it goes. Verify with -i sourced on host is not slower than verify from USB source because the payload does not need to be transfered to target. To workaround this, put the same wic.gz image on host and on USB, and program from USB but verify from host. 
+
 
 * Script does not support programing OSPI on systems with multiple possible targets. For an example, it does not support programming on a host with more than 1 V80 cards.
 
